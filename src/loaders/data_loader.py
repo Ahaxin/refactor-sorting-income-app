@@ -7,7 +7,7 @@ import math
 import pandas as pd
 
 from src.config import (
-    EMPLOYEE_FILE, INCOME_FILE, PREFERENCE_FILE, PREF_ALT_FILE,
+    EMPLOYEE_FILE, INCOME_FILE, PREFERENCE_FILE,
     GOOD_LIFE, TIANYUAN, COMPANY_NAMES,
     TYPE_SELF_EMPLOYED, TYPE_COMPANY_EMPLOYED,
 )
@@ -37,7 +37,6 @@ def load_all() -> tuple[
     se_workers, ce_workers = _load_employees()
     companies = _load_income()
     _load_preferences(se_workers, ce_workers, companies)
-    _load_exclusive_companies(se_workers, ce_workers)
 
     _log_summary(se_workers, ce_workers, companies)
     return se_workers, ce_workers, companies
@@ -53,6 +52,7 @@ def _load_employees() -> tuple[list[SelfEmployedEmployee], list[CompanyEmployedE
 
     se_workers: list[SelfEmployedEmployee] = []
     ce_workers: list[CompanyEmployedEmployee] = []
+    has_excl_col = "exclusive_company" in df.columns
 
     for _, row in df.iterrows():
         name = str(row["name"]).strip()
@@ -60,16 +60,40 @@ def _load_employees() -> tuple[list[SelfEmployedEmployee], list[CompanyEmployedE
         salary = int(row["salary"])
 
         if emp_type == TYPE_SELF_EMPLOYED:
-            se_workers.append(SelfEmployedEmployee(name, salary))
+            worker: SelfEmployedEmployee | CompanyEmployedEmployee = SelfEmployedEmployee(name, salary)
+            se_workers.append(worker)
         elif emp_type == TYPE_COMPANY_EMPLOYED:
-            ce_workers.append(CompanyEmployedEmployee(name, salary))
+            worker = CompanyEmployedEmployee(name, salary)
+            ce_workers.append(worker)
         else:
             logger.warning(f"  Unknown employee type '{emp_type}' for {name} — skipping")
+            continue
 
-    logger.info(f"  Self-employed:     {len(se_workers)} workers, "
-                f"total monthly target = {sum(w.salary for w in se_workers):,}")
-    logger.info(f"  Company-employed:  {len(ce_workers)} workers, "
-                f"total monthly cap    = {sum(w.salary for w in ce_workers):,}")
+        if has_excl_col:
+            excl_raw = row["exclusive_company"]
+            excl = (
+                ""
+                if (excl_raw is None or (isinstance(excl_raw, float) and math.isnan(excl_raw)))
+                else str(excl_raw).strip()
+            )
+            if excl:
+                if "good" in excl.lower():
+                    worker.exclusive_company = GOOD_LIFE
+                elif "tian" in excl.lower():
+                    worker.exclusive_company = TIANYUAN
+                else:
+                    logger.warning(f"  exclusive_company: unrecognised value '{excl}' for {name}")
+                if worker.exclusive_company:
+                    logger.info(f"  {name} is exclusive to {worker.exclusive_company}")
+
+    logger.info(
+        f"  Self-employed:     {len(se_workers)} workers, "
+        f"total monthly target = {sum(w.salary for w in se_workers):,}"
+    )
+    logger.info(
+        f"  Company-employed:  {len(ce_workers)} workers, "
+        f"total monthly cap    = {sum(w.salary for w in ce_workers):,}"
+    )
     return se_workers, ce_workers
 
 
@@ -156,66 +180,6 @@ def _load_preferences(
 
     logger.info(f"  Preference zero-days: {GOOD_LIFE}={zero_days[GOOD_LIFE]}, "
                 f"{TIANYUAN}={zero_days[TIANYUAN]}")
-
-
-# ---------------------------------------------------------------------------
-# Exclusive company parsing
-# ---------------------------------------------------------------------------
-
-def _load_exclusive_companies(
-    se_workers: list[SelfEmployedEmployee],
-    ce_workers: list[CompanyEmployedEmployee],
-) -> None:
-    """
-    Parse preferences.csv for the exclusive_company column.
-    If an employee has an exclusive_company they can ONLY work there.
-    """
-    try:
-        df = pd.read_csv(PREF_ALT_FILE)
-    except FileNotFoundError:
-        logger.warning(f"  {PREF_ALT_FILE} not found — skipping exclusive_company rules")
-        return
-
-    logger.info(f"Loaded {PREF_ALT_FILE}: parsing exclusive_company rules")
-
-    all_workers: dict[str, SelfEmployedEmployee | CompanyEmployedEmployee] = {
-        w.name: w for w in [*se_workers, *ce_workers]
-    }
-
-    if "exclusive_company" not in df.columns:
-        logger.warning("  No 'exclusive_company' column found in preferences.csv")
-        return
-
-    for _, row in df.iterrows():
-        name = str(row["name"]).strip()
-        if name not in all_workers:
-            logger.warning(f"  preferences.csv: unknown employee '{name}' — skipping")
-            continue
-
-        worker = all_workers[name]
-
-        # Parse exclusive_company
-        excl_raw = row["exclusive_company"]
-        excl = "" if (excl_raw is None or (isinstance(excl_raw, float) and math.isnan(excl_raw))) else str(excl_raw).strip()
-        if excl:
-            if "good" in excl.lower():
-                worker.exclusive_company = GOOD_LIFE
-            elif "tian" in excl.lower():
-                worker.exclusive_company = TIANYUAN
-            else:
-                logger.warning(f"  exclusive_company: unrecognised value '{excl}' for {name}")
-            if worker.exclusive_company:
-                logger.info(f"  {name} is exclusive to {worker.exclusive_company}")
-
-        # Parse preferred_company (used when no exclusive, to choose primary company for CE)
-        if "preferred_company" in df.columns:
-            pref_raw = row["preferred_company"]
-            pref = "" if (pref_raw is None or (isinstance(pref_raw, float) and math.isnan(pref_raw))) else str(pref_raw).strip()
-            if pref:
-                if "good" in pref.lower():
-                    worker.preferred_company = GOOD_LIFE
-                elif "tian" in pref.lower():
-                    worker.preferred_company = TIANYUAN
 
 
 # ---------------------------------------------------------------------------
