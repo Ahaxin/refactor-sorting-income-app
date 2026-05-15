@@ -138,6 +138,7 @@ with tab_generate:
             st.success("All checks passed — ready to generate.")
 
     if st.button("Generate", disabled=not st.session_state["sanity_passed"]):
+        _seed = 0
         try:
             _seed = int(seed_input)
         except ValueError:
