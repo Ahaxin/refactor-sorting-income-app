@@ -1,6 +1,5 @@
 """Unit tests for run_sanity_check."""
 import pandas as pd
-import pytest
 from src.sanity import run_sanity_check
 
 
