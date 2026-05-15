@@ -32,10 +32,8 @@ def test_generate_report_writes_to_custom_path(tmp_path, simple_scenario):
 
 
 def test_generate_report_default_path_still_works(tmp_path, simple_scenario, monkeypatch):
-    import src.config as cfg
+    import src.reports.excel_writer as ew
     default_path = str(tmp_path / "output" / "report.xlsx")
-    monkeypatch.setattr(cfg, "OUTPUT_FILE", default_path)
-    import importlib, src.reports.excel_writer as ew
-    importlib.reload(ew)
+    monkeypatch.setattr(ew, "OUTPUT_FILE", default_path)
     _run_and_report(simple_scenario, seed=42, output_path=None)
     assert os.path.exists(default_path)
