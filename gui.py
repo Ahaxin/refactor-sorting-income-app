@@ -39,8 +39,14 @@ with tab_employees:
         key="employees_editor",
     )
     if st.button("Save Employees"):
-        edited_emp.to_csv(EMPLOYEE_FILE, index=False)
-        st.success("Saved employee_data.csv")
+        if edited_emp.empty:
+            st.error("Cannot save: employee list is empty.")
+        elif edited_emp[["name", "type", "salary"]].isnull().any(axis=None):
+            st.error("All rows must have Name, Type, and Salary filled in.")
+        else:
+            edited_emp["salary"] = edited_emp["salary"].astype("Int64")
+            edited_emp.to_csv(EMPLOYEE_FILE, index=False)
+            st.success("Saved employee_data.csv")
 
 with tab_income:
     st.header("Income")
@@ -59,6 +65,7 @@ with tab_income:
         key="income_editor",
     )
     if st.button("Save Income"):
+        edited_inc[["good_life", "tianyuan"]] = edited_inc[["good_life", "tianyuan"]].astype("Int64")
         edited_inc.to_csv(INCOME_FILE, index=False)
         st.success("Saved income_data.csv")
 
@@ -81,7 +88,6 @@ with tab_pref:
     edited_pref = st.data_editor(
         _pref_df,
         num_rows="fixed",
-        disabled=["Company", "Day"],
         column_config=_pref_col_config,
         use_container_width=True,
         key="pref_editor",
