@@ -1,7 +1,4 @@
 """Tests that exclusive_company is read from employee_data.csv."""
-import math
-import pytest
-import pandas as pd
 from src.config import GOOD_LIFE, TIANYUAN
 
 
