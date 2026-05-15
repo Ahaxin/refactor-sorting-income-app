@@ -1,8 +1,5 @@
 """Streamlit GUI for the monthly salary planner."""
-import pandas as pd
 import streamlit as st
-
-from src.sanity import run_sanity_check
 
 EMPLOYEE_FILE = "data/employee_data.csv"
 INCOME_FILE = "data/income_data.csv"
