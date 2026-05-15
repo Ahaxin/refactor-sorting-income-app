@@ -27,3 +27,4 @@ with tab_pref:
 
 with tab_generate:
     st.header("Generate Report")
+    st.caption("Run sanity check, then generate the Excel report with your chosen seed.")
