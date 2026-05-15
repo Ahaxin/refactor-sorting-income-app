@@ -31,8 +31,10 @@ def generate_report(
     ce_workers: list[CompanyEmployedEmployee],
     companies: dict[str, Company],
     seed: int = 0,
+    output_path: str | None = None,
 ) -> None:
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
+    path = output_path if output_path is not None else OUTPUT_FILE
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     wb = Workbook()
     default_sheet = wb.active
     if default_sheet is not None:
@@ -43,8 +45,8 @@ def generate_report(
     _write_schedule_sheet(wb, se_workers, ce_workers, companies)
     _write_summary_sheet(wb, se_workers, ce_workers, companies, seed=seed)
 
-    wb.save(OUTPUT_FILE)
-    logger.info(f"Report saved to: {OUTPUT_FILE}")
+    wb.save(path)
+    logger.info(f"Report saved to: {path}")
 
 
 def _header_font() -> Font:

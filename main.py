@@ -7,8 +7,9 @@ import logging
 import os
 import random
 import sys
+from datetime import datetime
 
-from src.config import OUTPUT_FILE
+from src.config import OUTPUT_DIR
 from src.loaders.data_loader import load_all
 from src.engine.feasibility import check_se_feasibility
 from src.engine.ce_planner import plan_ce
@@ -76,9 +77,11 @@ def main() -> None:
     plan_ce(ce_workers, companies, rng)
 
     # 7. Generate report
-    generate_report(se_workers, ce_workers, companies, seed=seed)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = os.path.join(OUTPUT_DIR, f"report_seed{seed}_{timestamp}.xlsx")
+    generate_report(se_workers, ce_workers, companies, seed=seed, output_path=output_path)
 
-    logger.info(f"Done. Output written to: {OUTPUT_FILE}")
+    logger.info(f"Done. Output written to: {output_path}")
 
 
 if __name__ == "__main__":
