@@ -59,4 +59,4 @@ def test_multiple_errors_all_reported():
     emp = _emp([("Alice", "BAD", 0, ""), ("Alice", "Self-Employed", 500, "")])
     pref = _pref([])
     errors = run_sanity_check(emp, pref)
-    assert len(errors) >= 3  # bad type, zero salary, duplicate, missing from pref
+    assert len(errors) >= 4  # bad type, zero salary, duplicate, missing from pref
