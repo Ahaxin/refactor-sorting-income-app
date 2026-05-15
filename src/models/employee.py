@@ -16,8 +16,8 @@ class Employee:
         self.name = name
         self.emp_type = emp_type
         self.salary = salary          # monthly target (SE) or monthly cap (CE)
-        self.exclusive_company: str | None = None   # set by loader from preferences.csv
-        self.preferred_company: str | None = None   # set by loader from preferences.csv
+        self.exclusive_company: str | None = None   # set by _load_employees from employee_data.csv
+        self.preferred_company: str | None = None   # loaded but unused; no engine code reads this field
         # preferences[company][day] = 0 | 1 | 2  — populated by data_loader
         self.preferences: dict[str, dict[int, int]] = {}
 
