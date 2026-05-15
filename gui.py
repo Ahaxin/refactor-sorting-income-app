@@ -55,6 +55,7 @@ with tab_employees:
             edited_emp["salary"] = edited_emp["salary"].astype("Int64")
             edited_emp.to_csv(EMPLOYEE_FILE, index=False)
             st.success("Saved employee_data.csv")
+            st.session_state["sanity_passed"] = False
 
 with tab_income:
     st.header("Income")
@@ -76,6 +77,7 @@ with tab_income:
         edited_inc[["good_life", "tianyuan"]] = edited_inc[["good_life", "tianyuan"]].astype("Int64")
         edited_inc.to_csv(INCOME_FILE, index=False)
         st.success("Saved income_data.csv")
+        st.session_state["sanity_passed"] = False
 
 with tab_pref:
     st.header("Preference Matrix")
@@ -103,6 +105,7 @@ with tab_pref:
     if st.button("Save Preference Matrix"):
         edited_pref.to_csv(PREF_MATRIX_FILE, index=False)
         st.success("Saved updated_preference.csv")
+        st.session_state["sanity_passed"] = False
 
 with tab_generate:
     st.header("Generate Report")
@@ -112,6 +115,10 @@ with tab_generate:
         st.session_state["seed"] = random.SystemRandom().randrange(2**32)
     if "sanity_passed" not in st.session_state:
         st.session_state["sanity_passed"] = False
+    if "last_output_path" not in st.session_state:
+        st.session_state["last_output_path"] = None
+    if "last_log" not in st.session_state:
+        st.session_state["last_log"] = ""
 
     seed_input = st.text_input(
         "Seed (integer)",
@@ -160,6 +167,7 @@ with tab_generate:
         ))
         _root = logging.getLogger()
         _root.addHandler(_handler)
+        _prior_level = _root.level
         _root.setLevel(logging.INFO)
 
         _output_path = None
@@ -178,18 +186,22 @@ with tab_generate:
             _output_path = os.path.join(OUTPUT_DIR, f"report_seed{_seed}_{_ts}.xlsx")
             generate_report(_se, _ce, _companies, seed=_seed, output_path=_output_path)
             st.success(f"Report generated: `{_output_path}`")
+            st.session_state["last_output_path"] = _output_path
+            st.session_state["last_log"] = _log_buffer.getvalue()
         except Exception as _exc:
             st.error(f"Pipeline error: {_exc}")
         finally:
             _root.removeHandler(_handler)
+            _root.setLevel(_prior_level)
 
-        st.text_area("Pipeline Log", _log_buffer.getvalue(), height=300)
-
-        if _output_path and os.path.exists(_output_path):
-            with open(_output_path, "rb") as _f:
-                st.download_button(
-                    label="Download Report",
-                    data=_f.read(),
-                    file_name=os.path.basename(_output_path),
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
+    if st.session_state.get("last_log"):
+        st.text_area("Pipeline Log", st.session_state["last_log"], height=300)
+    _last_path = st.session_state.get("last_output_path")
+    if _last_path and os.path.exists(_last_path):
+        with open(_last_path, "rb") as _f:
+            st.download_button(
+                label="Download Report",
+                data=_f.read(),
+                file_name=os.path.basename(_last_path),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
