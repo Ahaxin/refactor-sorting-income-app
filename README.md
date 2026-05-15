@@ -151,9 +151,53 @@ pytest tests/test_feasibility.py -v
 - `test_feasible_scenario_passes` — Valid scenario passes feasibility check
 - `test_infeasible_scenario_fails` — Invalid scenario fails gracefully
 
-**Total: 35+ tests covering all phases and edge cases**
+**Total: 46 tests covering all phases, edge cases, and GUI sanity checks**
 
-## Running the Application
+## Streamlit GUI
+
+A browser-based GUI lets you edit input data and generate reports without touching the command line.
+
+### Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+### Launch
+
+```bash
+streamlit run gui.py
+```
+
+Streamlit opens a browser tab at `http://localhost:8501`.
+
+### Tabs
+
+| Tab | Purpose |
+|-----|---------|
+| **Employees** | Add, remove, or edit workers — name, type (SE/CE), monthly salary/cap, exclusive company |
+| **Income** | Edit the 30-day income table for Good Life and Tianyuan |
+| **Preference Matrix** | Set each worker's availability (0 = unavailable, 1 = available, 2 = preferred) per company per day |
+| **Generate** | Run sanity check and produce the Excel report |
+
+### Workflow
+
+1. Edit data in the **Employees**, **Income**, and **Preference Matrix** tabs — click **Save** in each tab after making changes.
+2. Switch to **Generate** and click **Run Sanity Check**. Errors are shown as a bulleted list; fix them and re-check.
+3. Once sanity passes, optionally change the **Seed** field (pre-filled with a random integer), then click **Generate**.
+4. Download the report via the **Download Report** button that appears on success.
+
+### Output Filename
+
+Reports are written to `output/` with the format:
+
+```
+report_seed{seed}_{YYYYMMDD_HHMMSS}.xlsx
+```
+
+---
+
+## Running the Application (CLI)
 
 ### Basic Usage
 
@@ -171,14 +215,17 @@ $env:SALARY_SEED=42; python main.py
 ### Output
 
 - **Console**: Detailed logs showing each phase (schedule summary, salary results, formula verification)
-- **File**: `output/report.xlsx` — Excel report with monthly and daily breakdowns
+- **File**: `output/report_seed{seed}_{YYYYMMDD_HHMMSS}.xlsx` — Excel report with monthly and daily breakdowns
 
 ### Input Data
 
 Place CSV files in `data/` directory:
-- `employee_data.csv` — Worker names, employment type, salary/cap
-- `income_data.csv` — Daily company income
-- `updated_preference.csv` or `preferences.csv` — Preference ratings (0/1/2) for each worker-company-day
+
+| File | Columns | Notes |
+|------|---------|-------|
+| `employee_data.csv` | `name`, `type`, `salary`, `exclusive_company` | `type`: `Self-Employed` or `Company-Employed`; `exclusive_company`: blank, `Good Life`, or `Tianyuan` |
+| `income_data.csv` | `day`, `good_life`, `tianyuan` | 30 rows, one per working day |
+| `updated_preference.csv` | `Company`, `Day`, one column per employee | Values: 0 (unavailable), 1 (available), 2 (preferred) |
 
 ## Example Run
 
@@ -202,8 +249,11 @@ $ python main.py --seed 42
 ## Architecture
 
 ```
+gui.py                           # Streamlit GUI entry point
+main.py                          # CLI entry point
 src/
 ├── config.py                    # Constants and configuration
+├── sanity.py                    # Input validation (used by GUI and tests)
 ├── models/
 │   ├── employee.py             # SE and CE employee classes
 │   └── company.py              # Company and DayLedger models
@@ -223,7 +273,10 @@ tests/
 ├── test_se_scheduler.py        # Scheduler tests (6+ tests)
 ├── test_salary_solver.py       # Solver tests (5+ tests)
 ├── test_ce_planner.py          # CE planner tests (4+ tests)
-└── test_integration.py         # Full pipeline integration tests (8+ tests)
+├── test_integration.py         # Full pipeline integration tests (8+ tests)
+├── test_sanity.py              # Sanity check tests (7 tests)
+├── test_data_loader_excl.py    # exclusive_company loading tests (2 tests)
+└── test_excel_output_path.py   # Dynamic output path tests (2 tests)
 ```
 
 ## Performance
