@@ -1,7 +1,6 @@
 """Tests that generate_report writes to a caller-supplied path."""
 import os
 import random
-import pytest
 from src.reports.excel_writer import generate_report
 from src.engine.feasibility import check_se_feasibility
 from src.engine.ce_planner import plan_ce
