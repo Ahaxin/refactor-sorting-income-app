@@ -25,10 +25,19 @@ tab_employees, tab_income, tab_pref, tab_generate = st.tabs(
 with tab_employees:
     st.header("Employees")
     st.caption("Edit employee_data.csv. Save before switching tabs.")
+    st.info(
+        "**➕ Add row:** click **Add Employee** below the table, "
+        "or click the empty `+` row at the bottom of the table.  \n"
+        "**🗑 Delete row:** tick the checkbox on the left of one or more rows, "
+        "then click the trash icon that appears at the top-right of the table."
+    )
 
-    _emp_df = pd.read_csv(EMPLOYEE_FILE)
+    if "employees_df" not in st.session_state:
+        st.session_state["employees_df"] = pd.read_csv(EMPLOYEE_FILE)
+
+    _emp_editor_key = f"employees_editor_{st.session_state.get('employees_version', 0)}"
     edited_emp = st.data_editor(
-        _emp_df,
+        st.session_state["employees_df"],
         num_rows="dynamic",
         column_config={
             "name": st.column_config.TextColumn("Name", required=True),
@@ -44,68 +53,201 @@ with tab_employees:
             ),
         },
         use_container_width=True,
-        key="employees_editor",
+        key=_emp_editor_key,
     )
-    if st.button("Save Employees"):
-        if edited_emp.empty:
-            st.error("Cannot save: employee list is empty.")
-        elif edited_emp[["name", "type", "salary"]].isnull().any(axis=None):
-            st.error("All rows must have Name, Type, and Salary filled in.")
-        else:
-            edited_emp["salary"] = edited_emp["salary"].astype("Int64")
-            edited_emp.to_csv(EMPLOYEE_FILE, index=False)
-            st.success("Saved employee_data.csv")
-            st.session_state["sanity_passed"] = False
+
+    _emp_col_add, _emp_col_save = st.columns([1, 1])
+    with _emp_col_add:
+        if st.button("➕ Add Employee", key="emp_add", use_container_width=True):
+            _new_row = pd.DataFrame([{
+                "name": "",
+                "type": "Self-Employed",
+                "salary": 1,
+                "exclusive_company": "",
+            }])
+            st.session_state["employees_df"] = pd.concat(
+                [edited_emp, _new_row], ignore_index=True
+            )
+            st.session_state["employees_version"] = (
+                st.session_state.get("employees_version", 0) + 1
+            )
+            st.rerun()
+    with _emp_col_save:
+        if st.button("💾 Save Employees", key="emp_save", use_container_width=True):
+            if edited_emp.empty:
+                st.error("Cannot save: employee list is empty.")
+            elif edited_emp[["name", "type", "salary"]].isnull().any(axis=None):
+                st.error("All rows must have Name, Type, and Salary filled in.")
+            else:
+                edited_emp["salary"] = edited_emp["salary"].astype("Int64")
+                edited_emp.to_csv(EMPLOYEE_FILE, index=False)
+                st.session_state["employees_df"] = edited_emp.copy()
+                st.success("Saved employee_data.csv")
+                st.session_state["sanity_passed"] = False
 
 with tab_income:
     st.header("Income")
-    st.caption("Edit income_data.csv — 30 rows, one per working day.")
+    st.caption("Edit income_data.csv — one row per working day. Day numbers are auto-renumbered on save.")
+    st.info(
+        "**➕ Add day:** click **Add Day** below the table, "
+        "or click the empty `+` row at the bottom of the table.  \n"
+        "**🗑 Delete day:** tick the checkbox on the left of one or more rows, "
+        "then click the trash icon that appears at the top-right of the table.  \n"
+        "_The Preference Matrix is automatically synced to the day count on save._"
+    )
 
-    _inc_df = pd.read_csv(INCOME_FILE)
+    if "income_df" not in st.session_state:
+        st.session_state["income_df"] = pd.read_csv(INCOME_FILE)
+
+    _inc_editor_key = f"income_editor_{st.session_state.get('income_version', 0)}"
     edited_inc = st.data_editor(
-        _inc_df,
-        num_rows="fixed",
+        st.session_state["income_df"],
+        num_rows="dynamic",
         column_config={
-            "day": st.column_config.NumberColumn("Day", disabled=True),
+            "day": st.column_config.NumberColumn("Day", disabled=True, help="Auto-numbered on save"),
             "good_life": st.column_config.NumberColumn("Good Life Income", min_value=0, step=1),
             "tianyuan": st.column_config.NumberColumn("Tianyuan Income", min_value=0, step=1),
         },
         use_container_width=True,
-        key="income_editor",
+        key=_inc_editor_key,
     )
-    if st.button("Save Income"):
-        edited_inc[["good_life", "tianyuan"]] = edited_inc[["good_life", "tianyuan"]].astype("Int64")
-        edited_inc.to_csv(INCOME_FILE, index=False)
-        st.success("Saved income_data.csv")
-        st.session_state["sanity_passed"] = False
+
+    _inc_col_add, _inc_col_save = st.columns([1, 1])
+    with _inc_col_add:
+        if st.button("➕ Add Day", key="inc_add", use_container_width=True):
+            _next_day = int(edited_inc["day"].max()) + 1 if len(edited_inc) else 1
+            _new_row = pd.DataFrame([{"day": _next_day, "good_life": 0, "tianyuan": 0}])
+            st.session_state["income_df"] = pd.concat(
+                [edited_inc, _new_row], ignore_index=True
+            )
+            st.session_state["income_version"] = (
+                st.session_state.get("income_version", 0) + 1
+            )
+            st.rerun()
+    with _inc_col_save:
+        if st.button("💾 Save Income", key="inc_save", use_container_width=True):
+            if edited_inc.empty:
+                st.error("Cannot save: income table is empty.")
+            elif edited_inc[["good_life", "tianyuan"]].isnull().any(axis=None):
+                st.error("All rows must have both income values filled in (use 0 for none).")
+            else:
+                _saved_inc = edited_inc.copy()
+                _saved_inc["day"] = range(1, len(_saved_inc) + 1)
+                _saved_inc[["good_life", "tianyuan"]] = _saved_inc[
+                    ["good_life", "tianyuan"]
+                ].astype("Int64")
+                _saved_inc.to_csv(INCOME_FILE, index=False)
+                st.session_state["income_df"] = _saved_inc.copy()
+                st.session_state["income_version"] = (
+                    st.session_state.get("income_version", 0) + 1
+                )
+
+                _new_days = _saved_inc["day"].tolist()
+                _pref_old = pd.read_csv(PREF_MATRIX_FILE)
+                _companies_order = list(dict.fromkeys(_pref_old["Company"].tolist()))
+                _employee_cols_p = [c for c in _pref_old.columns if c not in ("Company", "Day")]
+                _pref_lookup = {
+                    (str(r["Company"]), int(r["Day"])): r for _, r in _pref_old.iterrows()
+                }
+                _new_rows = []
+                for _company in _companies_order:
+                    for _day in _new_days:
+                        _existing = _pref_lookup.get((_company, int(_day)))
+                        _row = {"Company": _company, "Day": int(_day)}
+                        for _col in _employee_cols_p:
+                            _row[_col] = int(_existing[_col]) if _existing is not None else 1
+                        _new_rows.append(_row)
+                _pref_new = pd.DataFrame(_new_rows)[["Company", "Day"] + _employee_cols_p]
+                _pref_new.to_csv(PREF_MATRIX_FILE, index=False)
+                st.session_state["pref_df"] = _pref_new.copy()
+                st.session_state["pref_version"] = (
+                    st.session_state.get("pref_version", 0) + 1
+                )
+
+                st.success(
+                    f"Saved income_data.csv ({len(_saved_inc)} days). "
+                    "Preference Matrix auto-synced."
+                )
+                st.session_state["sanity_passed"] = False
+
+PREF_LABEL_UNAVAILABLE = "❌ Unavailable"
+PREF_LABEL_AVAILABLE = "✅ Available"
+PREF_LABEL_PREFERRED = "⭐ Preferred"
+PREF_INT_TO_LABEL = {
+    0: PREF_LABEL_UNAVAILABLE,
+    1: PREF_LABEL_AVAILABLE,
+    2: PREF_LABEL_PREFERRED,
+}
+PREF_LABEL_TO_INT = {v: k for k, v in PREF_INT_TO_LABEL.items()}
+PREF_OPTIONS = [PREF_LABEL_UNAVAILABLE, PREF_LABEL_AVAILABLE, PREF_LABEL_PREFERRED]
+
+
+def _pref_int_to_label_df(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for col in out.columns:
+        if col in ("Company", "Day"):
+            continue
+        out[col] = out[col].apply(
+            lambda v: PREF_INT_TO_LABEL.get(int(v), PREF_LABEL_AVAILABLE)
+            if pd.notna(v) else PREF_LABEL_AVAILABLE
+        )
+    return out
+
+
+def _pref_label_to_int_df(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for col in out.columns:
+        if col in ("Company", "Day"):
+            continue
+        out[col] = out[col].apply(lambda v: PREF_LABEL_TO_INT.get(v, 1)).astype("Int64")
+    return out
+
 
 with tab_pref:
     st.header("Preference Matrix")
-    st.caption("0 = unavailable · 1 = available · 2 = preferred. Edit updated_preference.csv.")
+    st.caption(
+        "Pick each employee's availability per (Company × Day). "
+        "Edit by clicking a cell and choosing from the dropdown."
+    )
+    st.info(
+        f"**Legend:** {PREF_LABEL_UNAVAILABLE} = 0 · {PREF_LABEL_AVAILABLE} = 1 · {PREF_LABEL_PREFERRED} = 2  \n"
+        "_Rows are managed automatically — they sync with the days in the Income tab._  \n"
+        "To add or remove days, use the **Income** tab."
+    )
 
-    _pref_df = pd.read_csv(PREF_MATRIX_FILE)
-    _employee_cols = [c for c in _pref_df.columns if c not in ("Company", "Day")]
+    if "pref_df" not in st.session_state:
+        st.session_state["pref_df"] = pd.read_csv(PREF_MATRIX_FILE)
+    _pref_df_int = st.session_state["pref_df"]
+    _employee_cols = [c for c in _pref_df_int.columns if c not in ("Company", "Day")]
+    _pref_df_display = _pref_int_to_label_df(_pref_df_int)
 
     _pref_col_config: dict = {
         "Company": st.column_config.TextColumn("Company", disabled=True),
         "Day": st.column_config.NumberColumn("Day", disabled=True),
     }
     for _col in _employee_cols:
-        _pref_col_config[_col] = st.column_config.NumberColumn(
-            _col, min_value=0, max_value=2, step=1
+        _pref_col_config[_col] = st.column_config.SelectboxColumn(
+            _col, options=PREF_OPTIONS, required=True
         )
 
-    edited_pref = st.data_editor(
-        _pref_df,
+    _pref_editor_key = f"pref_editor_{st.session_state.get('pref_version', 0)}"
+    edited_pref_display = st.data_editor(
+        _pref_df_display,
         num_rows="fixed",
         column_config=_pref_col_config,
         use_container_width=True,
-        key="pref_editor",
+        key=_pref_editor_key,
     )
-    if st.button("Save Preference Matrix"):
-        edited_pref.to_csv(PREF_MATRIX_FILE, index=False)
-        st.success("Saved updated_preference.csv")
-        st.session_state["sanity_passed"] = False
+    if st.button("💾 Save Preference Matrix"):
+        try:
+            edited_pref = _pref_label_to_int_df(edited_pref_display)
+        except (KeyError, ValueError) as _exc:
+            st.error(f"Could not parse preference values: {_exc}")
+        else:
+            edited_pref.to_csv(PREF_MATRIX_FILE, index=False)
+            st.session_state["pref_df"] = edited_pref.copy()
+            st.success("Saved updated_preference.csv")
+            st.session_state["sanity_passed"] = False
 
 with tab_generate:
     st.header("Generate Report")
@@ -135,7 +277,8 @@ with tab_generate:
 
         _emp_check = pd.read_csv(EMPLOYEE_FILE)
         _pref_check = pd.read_csv(PREF_MATRIX_FILE)
-        _errors = run_sanity_check(_emp_check, _pref_check)
+        _inc_check = pd.read_csv(INCOME_FILE)
+        _errors = run_sanity_check(_emp_check, _pref_check, _inc_check)
 
         if _errors:
             st.session_state["sanity_passed"] = False
@@ -185,11 +328,37 @@ with tab_generate:
             _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             _output_path = os.path.join(OUTPUT_DIR, f"report_seed{_seed}_{_ts}.xlsx")
             generate_report(_se, _ce, _companies, seed=_seed, output_path=_output_path)
+
+            from src.config import SE_SALARY_UNIT
+            _deviations: list[str] = []
+            for _company in _companies.values():
+                for _day_num in _company.days:
+                    _dl = _company.get_day(_day_num)
+                    if _dl.is_full_ce_absorption:
+                        continue
+                    _fval = round(_dl.formula_check)
+                    _dev = abs(_fval - _dl.cleaned_income)
+                    if _dev > SE_SALARY_UNIT:
+                        _deviations.append(
+                            f"{_company.name} day {_day_num}: "
+                            f"formula={_fval}, cleaned={_dl.cleaned_income}, "
+                            f"deviation={_dev}"
+                        )
+
             st.success(f"Report generated: `{_output_path}`")
+            if _deviations:
+                st.warning(
+                    "Report generated, but **{n} day(s) have salary/income deviation > {u}**:\n\n".format(
+                        n=len(_deviations), u=SE_SALARY_UNIT
+                    )
+                    + "\n".join(f"• {d}" for d in _deviations)
+                )
             st.session_state["last_output_path"] = _output_path
             st.session_state["last_log"] = _log_buffer.getvalue()
+            st.session_state["last_deviations"] = _deviations
         except Exception as _exc:
             st.error(f"Pipeline error: {_exc}")
+            st.session_state["last_log"] = _log_buffer.getvalue()
         finally:
             _root.removeHandler(_handler)
             _root.setLevel(_prior_level)
