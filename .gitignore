@@ -8,8 +8,6 @@ env/
 venv/
 .venv
 *.egg-info/
-dist/
-build/
 
 # IDE
 .vscode/
@@ -36,3 +34,12 @@ output/
 
 # Logs
 *.log
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
+# Installer output (generated, not source)
+installer/
+*.zip
