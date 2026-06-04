@@ -52,6 +52,79 @@ st.markdown("""
     .stButton > button {
         color: inherit !important;
     }
+
+    /* Workflow stepper */
+    .stepper {
+        display: flex;
+        align-items: flex-start;
+        padding: 1.2rem 1rem 0.8rem 1rem;
+        margin: 0.4rem 0 1rem 0;
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #e3e6f0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: 0 0 auto;
+        min-width: 110px;
+        text-align: center;
+    }
+    .step-circle {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: white;
+        margin-bottom: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .step-saved   .step-circle { background: #1cc88a; }
+    .step-warn    .step-circle { background: #f6c23e; }
+    .step-ready   .step-circle { background: #4e73df; }
+    .step-done    .step-circle { background: #1cc88a; }
+    .step-pending .step-circle { background: #dddfeb; color: #6e707e; box-shadow: none; }
+
+    .step-label {
+        font-weight: 600;
+        color: #2e3a4b;
+        font-size: 0.95rem;
+        white-space: nowrap;
+    }
+    .step-status {
+        font-size: 0.78rem;
+        color: #6e707e;
+        margin-top: 0.2rem;
+        white-space: nowrap;
+    }
+    .step-connector {
+        flex: 1;
+        height: 3px;
+        background: #e3e6f0;
+        margin-top: 22px;
+        border-radius: 2px;
+        min-width: 20px;
+    }
+    .step-connector.done { background: #1cc88a; }
+
+    /* Status pill for the save-all action bar */
+    .status-pill {
+        padding: 0.55rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        height: 100%;
+        display: flex;
+        align-items: center;
+    }
+    .status-pill.status-warn { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+    .status-pill.status-ok   { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -114,16 +187,90 @@ def get_company_maps(t):
 type_map, rev_type_map = get_type_maps(t)
 comp_map, rev_comp_map = get_company_maps(t)
 
-# 6. Global Prompt Bar
+def render_stepper(unsaved_tabs):
+    """Render the 4-step workflow stepper above the dashboard."""
+    sanity_passed = st.session_state.get("sanity_passed", False)
+    last_path = st.session_state.get("last_output_path")
+    generate_done = bool(sanity_passed and last_path and os.path.exists(last_path))
+
+    steps = [
+        ("①", t["step_employees"], "employees"),
+        ("②", t["step_income"], "income"),
+        ("③", t["step_pref"], "pref"),
+        ("④", t["step_generate"], "generate"),
+    ]
+
+    rendered = []
+    prev_complete = True
+    for i, (num, label, key) in enumerate(steps):
+        if key == "generate":
+            if generate_done:
+                state, status, complete = "done", t["step_done"], True
+            elif sanity_passed:
+                state, status, complete = "ready", t["step_ready"], False
+            else:
+                state, status, complete = "pending", t["step_pending"], False
+        else:
+            if key in unsaved_tabs:
+                state, status, complete = "warn", t["step_unsaved"], False
+            else:
+                state, status, complete = "saved", t["step_saved"], True
+
+        if i > 0:
+            connector_class = "step-connector done" if prev_complete else "step-connector"
+            rendered.append(f'<div class="{connector_class}"></div>')
+        rendered.append(
+            f'<div class="step step-{state}">'
+            f'<div class="step-circle">{num}</div>'
+            f'<div class="step-label">{label}</div>'
+            f'<div class="step-status">{status}</div>'
+            f'</div>'
+        )
+        prev_complete = complete
+
+    st.markdown('<div class="stepper">' + "".join(rendered) + '</div>', unsafe_allow_html=True)
+
+# 6. Global Prompt Bar  — always rendered so layout never shifts
 unsaved_tabs = get_unsaved_changes()
-if unsaved_tabs:
-    st.warning(t["warn_unsaved"])
-    c_s, c_d, _ = st.columns([1, 1, 4])
-    if c_s.button(t["btn_save_all"], use_container_width=True, type="primary"):
-        st.session_state["trigger_save_all"] = True
-        st.rerun()
-    if c_d.button(t["btn_discard_all"], use_container_width=True):
-        reset_all_editors()
+render_stepper(unsaved_tabs)
+
+def _save_all_callback():
+    unsaved = get_unsaved_changes()
+    saved_any = False
+    if "employees" in unsaved and "_emp_edited_df" in st.session_state:
+        if do_save_employees(st.session_state["_emp_edited_df"]):
+            saved_any = True
+    if "income" in unsaved and "_inc_edited_df" in st.session_state:
+        if do_save_income(st.session_state["_inc_edited_df"]):
+            saved_any = True
+    if "pref" in unsaved and "_pref_edited_df" in st.session_state:
+        if do_save_pref(st.session_state["_pref_edited_df"]):
+            saved_any = True
+    if saved_any:
+        st.session_state["employees_version"] = st.session_state.get("employees_version", 0) + 1
+        st.session_state["income_version"] = st.session_state.get("income_version", 0) + 1
+        st.session_state["pref_version"] = st.session_state.get("pref_version", 0) + 1
+        st.session_state["_flash_saved"] = True
+
+def _discard_all_callback():
+    st.session_state["employees_version"] = st.session_state.get("employees_version", 0) + 1
+    st.session_state["income_version"] = st.session_state.get("income_version", 0) + 1
+    st.session_state["pref_version"] = st.session_state.get("pref_version", 0) + 1
+
+_has_unsaved = bool(unsaved_tabs)
+_c_msg, _c_save, _c_discard = st.columns([4, 1, 1])
+with _c_msg:
+    if _has_unsaved:
+        st.markdown(f'<div class="status-pill status-warn">{t["warn_unsaved"]}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="status-pill status-ok">{t["status_all_saved"]}</div>', unsafe_allow_html=True)
+with _c_save:
+    st.button(t["btn_save_all"], on_click=_save_all_callback, disabled=not _has_unsaved, use_container_width=True, type="primary", key="btn_save_all_top")
+with _c_discard:
+    st.button(t["btn_discard_all"], on_click=_discard_all_callback, disabled=not _has_unsaved, use_container_width=True, key="btn_discard_all_top")
+
+if st.session_state.pop("_flash_saved", False):
+    st.success(t["msg_all_saved"])
 
 # 7. Data Loading for Metrics
 if "employees_df" not in st.session_state:
@@ -179,8 +326,10 @@ with tab_employees:
             "exclusive_company": st.column_config.SelectboxColumn(t["col_exclusive"], options=list(comp_map.values())),
         },
         width="stretch",
+        height=(len(display_emp) + 2) * 36 + 3,
         key=_emp_editor_key,
     )
+    st.session_state["_emp_edited_df"] = edited_emp_display
 
     def do_save_employees(df):
         if df.empty:
@@ -214,9 +363,6 @@ with tab_employees:
             st.session_state["sanity_passed"] = False
             return True
 
-    if st.session_state.get("trigger_save_all") and "employees" in unsaved_tabs:
-        do_save_employees(edited_emp_display)
-
     _emp_col_add, _emp_col_save = st.columns([1, 1])
     with _emp_col_add:
         if st.button(t["btn_add_emp"], key="emp_add", use_container_width=True):
@@ -241,8 +387,9 @@ with tab_income:
     st.info(t["info_income"])
 
     _inc_editor_key = f"income_editor_{st.session_state.get('income_version', 0)}_{lang}"
+    _inc_df = st.session_state["income_df"]
     edited_inc = st.data_editor(
-        st.session_state["income_df"],
+        _inc_df,
         num_rows="dynamic",
         column_config={
             "day": st.column_config.NumberColumn(t["col_day"], disabled=True, help=t["help_day"]),
@@ -250,8 +397,10 @@ with tab_income:
             "tianyuan": st.column_config.NumberColumn(t["col_ty_income"], min_value=0, step=1),
         },
         width="stretch",
+        height=(len(_inc_df) + 2) * 36 + 3,
         key=_inc_editor_key,
     )
+    st.session_state["_inc_edited_df"] = edited_inc
 
     def do_save_income(df):
         if df.empty:
@@ -286,9 +435,6 @@ with tab_income:
             st.session_state["pref_df"] = _pref_new.copy()
             st.session_state["sanity_passed"] = False
             return True
-
-    if st.session_state.get("trigger_save_all") and "income" in unsaved_tabs:
-        do_save_income(edited_inc)
 
     _inc_col_add, _inc_col_save = st.columns([1, 1])
     with _inc_col_add:
@@ -339,7 +485,8 @@ with tab_pref:
         _pref_col_config[_col] = st.column_config.SelectboxColumn(_col, options=pref_options, required=True)
 
     _pref_editor_key = f"pref_editor_{st.session_state.get('pref_version', 0)}_{lang}"
-    edited_pref_display = st.data_editor(_pref_df_display, num_rows="fixed", column_config=_pref_col_config, width="stretch", key=_pref_editor_key)
+    edited_pref_display = st.data_editor(_pref_df_display, num_rows="fixed", column_config=_pref_col_config, width="stretch", height=(len(_pref_df_display) + 1) * 36 + 3, key=_pref_editor_key)
+    st.session_state["_pref_edited_df"] = edited_pref_display
 
     def do_save_pref(display_df):
         try:
@@ -353,20 +500,11 @@ with tab_pref:
             st.session_state["sanity_passed"] = False
             return True
 
-    if st.session_state.get("trigger_save_all") and "pref" in unsaved_tabs:
-        do_save_pref(edited_pref_display)
-
     if st.button(t["btn_save_pref"], use_container_width=True, type="primary"):
         if do_save_pref(edited_pref_display):
             st.success(t["msg_pref_saved"])
             st.session_state["pref_version"] = st.session_state.get("pref_version", 0) + 1
             st.rerun()
-
-# 9. Handle Save All trigger completion
-if st.session_state.get("trigger_save_all"):
-    st.session_state["trigger_save_all"] = False
-    st.success(t["msg_all_saved"])
-    reset_all_editors()
 
 with tab_generate:
     st.header(t["header_gen"])
