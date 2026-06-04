@@ -16,7 +16,7 @@ MAX_PER_DAY = 400     # upper bound for both SE and CE daily salary
 PREDEFINED_DAILY = 180
 
 # Sinkhorn solver settings
-SOLVER_MAX_ITER = 3000
+SOLVER_MAX_ITER = 500
 SOLVER_TOL = 1e-1
 
 # The 40% profit-sharing ratio

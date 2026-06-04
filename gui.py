@@ -1,7 +1,6 @@
 """Streamlit GUI for the monthly salary planner."""
 import logging
 import os
-import random
 from datetime import datetime
 from io import StringIO
 
@@ -197,6 +196,21 @@ with tab_employees:
             save_df["salary"] = save_df["salary"].astype("Int64")
             save_df.to_csv(EMPLOYEE_FILE, index=False)
             st.session_state["employees_df"] = save_df.copy()
+
+            # Sync Preference Matrix columns to current employee names
+            _new_names = [str(n).strip() for n in save_df["name"].tolist()]
+            _pref_old = pd.read_csv(PREF_MATRIX_FILE)
+            _pref_new = _pref_old[["Company", "Day"]].copy()
+            _existing_emp_cols = [c for c in _pref_old.columns if c not in ("Company", "Day")]
+            for _name in _new_names:
+                if _name in _existing_emp_cols:
+                    _pref_new[_name] = _pref_old[_name]
+                else:
+                    _pref_new[_name] = 1
+            _pref_new.to_csv(PREF_MATRIX_FILE, index=False)
+            st.session_state["pref_df"] = _pref_new.copy()
+            st.session_state["pref_version"] = st.session_state.get("pref_version", 0) + 1
+
             st.session_state["sanity_passed"] = False
             return True
 
@@ -358,24 +372,19 @@ with tab_generate:
     st.header(t["header_gen"])
     st.subheader(t["summary_header"])
     
-    if "seed" not in st.session_state: st.session_state["seed"] = random.SystemRandom().randrange(2**32)
     if "sanity_passed" not in st.session_state: st.session_state["sanity_passed"] = False
     if "sanity_errors" not in st.session_state: st.session_state["sanity_errors"] = []
     if "last_output_path" not in st.session_state: st.session_state["last_output_path"] = None
     if "last_log" not in st.session_state: st.session_state["last_log"] = ""
-    
-    c_seed, c_status = st.columns([2, 1])
-    with c_seed:
-        seed_input = st.text_input(t["label_seed"], value=str(st.session_state["seed"]), key="seed_input")
-    with c_status:
-        # Display status based on session state
-        if st.session_state["sanity_errors"]:
-            st.markdown(f"### {t['status_error']}")
-        elif st.session_state["sanity_passed"]:
-            st.markdown(f"### {t['status_ready']}")
-        else:
-            st.markdown(f"### {t['status_pending']}")
-    
+
+    # Status indicator
+    if st.session_state["sanity_errors"]:
+        st.markdown(f"### {t['status_error']}")
+    elif st.session_state["sanity_passed"]:
+        st.markdown(f"### {t['status_ready']}")
+    else:
+        st.markdown(f"### {t['status_pending']}")
+
     # Sanity result area
     if st.session_state["sanity_errors"]:
         st.error(t["err_sanity_failed"] + "\n".join(f"• {e}" for e in st.session_state["sanity_errors"]))
@@ -384,34 +393,27 @@ with tab_generate:
 
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
-        # Define label clearly
         label_sanity = t["btn_run_sanity"]
         if st.button(label_sanity, use_container_width=True, key="btn_run_sanity_check"):
-            try: st.session_state["seed"] = int(seed_input)
-            except ValueError: st.error(t["err_seed_int"]); st.stop()
-            
-            # Perform check
             _errors = run_sanity_check(st.session_state["employees_df"], st.session_state["pref_df"], st.session_state["income_df"], lang=lang)
             st.session_state["sanity_errors"] = _errors
             st.session_state["sanity_passed"] = (len(_errors) == 0)
-            st.rerun() # Trigger a clean rerun to update UI state and button labels
-    
+            st.rerun()
+
     with col_btn2:
-        # Define label clearly and ensure it's a string
         label_gen = str(t["btn_generate"])
-        # Important: Assign to variable BEFORE calling button
         is_ready = st.session_state.get("sanity_passed", False)
-        
+
         if st.button(label_gen, disabled=not is_ready, use_container_width=True, type="primary", key="btn_trigger_generate"):
-            try: _seed = int(seed_input)
-            except ValueError: st.error(t["err_seed_int"]); st.stop()
             from src.loaders.data_loader import load_all
             from src.engine.feasibility import check_se_feasibility
             from src.engine.ce_planner import plan_ce
             from src.engine.se_scheduler import schedule_se
             from src.engine.salary_solver import solve_salaries
-            from src.reports.excel_writer import generate_report
+            from src.reports.excel_writer import generate_report, generate_simplified_report
+            from src.config import SE_SALARY_UNIT
             import random as _rnd
+
             _log_buffer = StringIO()
             _handler = logging.StreamHandler(_log_buffer)
             _handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(name)s — %(message)s", "%H:%M:%S"))
@@ -419,33 +421,91 @@ with tab_generate:
             _root.addHandler(_handler)
             _prior_level = _root.level
             _root.setLevel(logging.INFO)
+
+            _attempt_logger = logging.getLogger("auto_retry")
+            _max_attempts = 20
+            _best_state = None  # (se, ce, companies, seed, shortfalls, deviations)
+            _success_attempt = None
+            _status = st.status(t["spinner_generating"].format(n=1, max=_max_attempts), expanded=False)
+
             try:
-                _rng = _rnd.Random(_seed); _se, _ce, _companies = load_all()
-                check_se_feasibility(_se, _companies)
-                for _c in _companies.values():
-                    for _d in _c.days: _c.get_day(_d).compute_se_target_from_ce(0)
-                schedule_se(_se, _companies, _rng); solve_salaries(_se, _companies, _rng); plan_ce(_ce, _companies, _rng)
+                for _attempt in range(1, _max_attempts + 1):
+                    _status.update(label=t["spinner_generating"].format(n=_attempt, max=_max_attempts))
+                    _seed = _rnd.SystemRandom().randrange(2**32)
+                    _rng = _rnd.Random(_seed)
+                    _se, _ce, _companies = load_all()
+                    check_se_feasibility(_se, _companies)
+                    for _c in _companies.values():
+                        for _d in _c.days: _c.get_day(_d).compute_se_target_from_ce(0)
+                    schedule_se(_se, _companies, _rng)
+                    solve_salaries(_se, _companies, _rng)
+                    plan_ce(_ce, _companies, _rng)
+
+                    _deviations = []
+                    for _c in _companies.values():
+                        for _dn in _c.days:
+                            _dl = _c.get_day(_dn)
+                            if _dl.is_full_ce_absorption: continue
+                            _fval = round(_dl.formula_check); _dev = abs(_fval - _dl.cleaned_income)
+                            if _dev > SE_SALARY_UNIT:
+                                _deviations.append(t["deviation_msg"].format(company=_c.name, day=_dn, formula=_fval, cleaned=_dl.cleaned_income, dev=_dev))
+                    _shortfalls = []
+                    for _w in _se:
+                        _gap = _w.actual_monthly_salary - _w.salary
+                        if _gap != 0:
+                            _shortfalls.append(t["shortfall_msg"].format(name=_w.name, target=_w.salary, actual=_w.actual_monthly_salary, gap=_gap))
+
+                    _best_state = (_se, _ce, _companies, _seed, _shortfalls, _deviations)
+
+                    if not _shortfalls and not _deviations:
+                        _attempt_logger.info(t["log_attempt_ok"].format(n=_attempt, seed=_seed))
+                        _success_attempt = _attempt
+                        break
+                    else:
+                        _attempt_logger.warning(t["log_attempt_fail"].format(n=_attempt, seed=_seed, sf=len(_shortfalls), dv=len(_deviations)))
+
+                # Write Excel only once — for the winning attempt, or the final attempt if none won
+                assert _best_state is not None
+                _se, _ce, _companies, _seed, _last_shortfalls, _last_deviations = _best_state
                 _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                _output_path = os.path.join(OUTPUT_DIR, f"report_seed{_seed}_{_ts}.xlsx")
-                generate_report(_se, _ce, _companies, seed=_seed, output_path=_output_path)
-                from src.config import SE_SALARY_UNIT
-                _deviations = []
-                for _c in _companies.values():
-                    for _dn in _c.days:
-                        _dl = _c.get_day(_dn)
-                        if _dl.is_full_ce_absorption: continue
-                        _fval = round(_dl.formula_check); _dev = abs(_fval - _dl.cleaned_income)
-                        if _dev > SE_SALARY_UNIT: _deviations.append(t["deviation_msg"].format(company=_c.name, day=_dn, formula=_fval, cleaned=_dl.cleaned_income, dev=_dev))
-                st.success(t["msg_gen_success"].format(p=_output_path))
-                if _deviations: st.warning(t["warn_deviation"].format(n=len(_deviations), u=SE_SALARY_UNIT) + "\n".join(f"• {d}" for d in _deviations))
-                st.session_state["last_output_path"] = _output_path; st.session_state["last_log"] = _log_buffer.getvalue()
-            except Exception as _exc: st.error(t["err_pipeline"].format(e=_exc)); st.session_state["last_log"] = _log_buffer.getvalue()
-            finally: _root.removeHandler(_handler); _root.setLevel(_prior_level)
+                _last_path = os.path.join(OUTPUT_DIR, f"report_seed{_seed}_{_ts}.xlsx")
+                _last_simple_path = os.path.join(OUTPUT_DIR, f"report_seed{_seed}_{_ts}_simple.xlsx")
+                generate_report(_se, _ce, _companies, seed=_seed, output_path=_last_path)
+                generate_simplified_report(_se, _ce, _companies, output_path=_last_simple_path)
+                _status.update(state="complete", expanded=False)
+
+                if _success_attempt is not None:
+                    st.success(t["msg_gen_success_attempts"].format(n=_success_attempt, p=_last_path))
+                else:
+                    st.warning(t["warn_no_success"].format(n=_max_attempts, p=_last_path))
+                    if _last_shortfalls:
+                        st.warning(t["warn_shortfall"].format(n=len(_last_shortfalls)) + "\n".join(f"• {s}" for s in _last_shortfalls))
+                    if _last_deviations:
+                        st.warning(t["warn_deviation"].format(n=len(_last_deviations), u=SE_SALARY_UNIT) + "\n".join(f"• {d}" for d in _last_deviations))
+
+                st.session_state["last_output_path"] = _last_path
+                st.session_state["last_simple_path"] = _last_simple_path
+                st.session_state["last_log"] = _log_buffer.getvalue()
+            except Exception as _exc:
+                _status.update(state="error")
+                st.error(t["err_pipeline"].format(e=_exc))
+                st.session_state["last_log"] = _log_buffer.getvalue()
+            finally:
+                _root.removeHandler(_handler); _root.setLevel(_prior_level)
 
     if st.session_state.get("last_log"): 
         with st.expander(t["label_log"], expanded=True):
             st.text_area(t["label_log"], st.session_state["last_log"], height=300, label_visibility="collapsed")
     
     _lp = st.session_state.get("last_output_path")
-    if _lp and os.path.exists(_lp):
-        with open(_lp, "rb") as _f: st.download_button(label=t["btn_download"], data=_f.read(), file_name=os.path.basename(_lp), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    _lsp = st.session_state.get("last_simple_path")
+    _mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    _dl_col_full, _dl_col_simple = st.columns(2)
+    with _dl_col_full:
+        if _lp and os.path.exists(_lp):
+            with open(_lp, "rb") as _f:
+                st.download_button(label=t["btn_download_full"], data=_f.read(), file_name=os.path.basename(_lp), mime=_mime, use_container_width=True, key="dl_full")
+    with _dl_col_simple:
+        if _lsp and os.path.exists(_lsp):
+            with open(_lsp, "rb") as _f:
+                st.download_button(label=t["btn_download_simple"], data=_f.read(), file_name=os.path.basename(_lsp), mime=_mime, use_container_width=True, key="dl_simple")

@@ -33,3 +33,6 @@ output/
 .env
 .env.local
 *.local.json
+
+# Logs
+*.log

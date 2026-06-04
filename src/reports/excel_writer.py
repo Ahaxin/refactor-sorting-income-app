@@ -49,6 +49,64 @@ def generate_report(
     logger.info(f"Report saved to: {path}")
 
 
+def generate_simplified_report(
+    se_workers: list[SelfEmployedEmployee],
+    ce_workers: list[CompanyEmployedEmployee],
+    companies: dict[str, Company],
+    output_path: str,
+) -> None:
+    """Two-sheet workbook (Good Life, Tianyuan). Columns: Day, Income, then one
+    column per employee that worked at the company (names only, no CE/SE prefix)."""
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    wb = Workbook()
+    default_sheet = wb.active
+    if default_sheet is not None:
+        wb.remove(default_sheet)
+
+    _write_simple_company_sheet(wb, GOOD_LIFE, "Good Life", se_workers, ce_workers, companies)
+    _write_simple_company_sheet(wb, TIANYUAN, "Tianyuan", se_workers, ce_workers, companies)
+
+    wb.save(output_path)
+    logger.info(f"Simplified report saved to: {output_path}")
+
+
+def _write_simple_company_sheet(
+    wb: Workbook,
+    company_key: str,
+    sheet_title: str,
+    se_workers: list[SelfEmployedEmployee],
+    ce_workers: list[CompanyEmployedEmployee],
+    companies: dict[str, Company],
+) -> None:
+    company = companies[company_key]
+    ws = wb.create_sheet(title=sheet_title)
+
+    # Employees who actually worked at this company, CE first then SE, original CSV order preserved
+    workers_here = [
+        w for w in (*ce_workers, *se_workers)
+        if any(c == company_key for (c, _) in w.schedule)
+    ]
+
+    headers = ["Day", "Income"] + [w.name for w in workers_here]
+    for col_idx, h in enumerate(headers, start=1):
+        _apply_header(ws.cell(row=1, column=col_idx), h)
+    ws.freeze_panes = "B2"
+
+    for row_idx, day in enumerate(company.days, start=2):
+        dl = company.get_day(day)
+        _apply_cell(ws.cell(row=row_idx, column=1), day)
+        _apply_cell(ws.cell(row=row_idx, column=2), dl.raw_income)
+        for col_offset, w in enumerate(workers_here, start=3):
+            val = w.schedule.get((company_key, day), 0)
+            _apply_cell(ws.cell(row=row_idx, column=col_offset), val if val else "")
+
+    ws.column_dimensions[get_column_letter(1)].width = 6
+    ws.column_dimensions[get_column_letter(2)].width = 10
+    for col_idx in range(3, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 11
+    ws.row_dimensions[1].height = 25
+
+
 def _header_font() -> Font:
     return Font(bold=True, color="FFFFFF")
 
