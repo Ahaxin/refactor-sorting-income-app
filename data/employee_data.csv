@@ -1,23 +1,20 @@
 name,type,salary,exclusive_company
-Jenny,Self-Employed,1800,
-Ling,Self-Employed,2000,
+Jenny,Self-Employed,900,
+Ling,Self-Employed,800,
 Min,Self-Employed,1200,
-Hou,Self-Employed,1100,
-Elina,Self-Employed,1500,
-Yang,Self-Employed,1200,
-Rose,Self-Employed,1200,
-Lily,Self-Employed,2000,
-Amy,Self-Employed,1200,
-Sunny,Self-Employed,1400,
-Mango,Self-Employed,1150,
+Hou,Company-Employed,1600,Tianyuan
+Elina,Self-Employed,1700,
+Rose,Self-Employed,1300,
+Lily,Self-Employed,1900,
+Amy,Self-Employed,1900,
+Sunny,Self-Employed,2000,
+Mango,Self-Employed,900,
 Kunsang,Self-Employed,1200,
-Tenzin,Self-Employed,120,
+Tenzin,Self-Employed,2000,
 Urai,Self-Employed,1500,
-Linda,Self-Employed,900,
-Nana,Self-Employed,900,
-Sisi,Self-Employed,400,
-Sherry,Self-Employed,1100,
+Linda,Self-Employed,600,
 Zhong,Company-Employed,9210,Good Life
 Yi,Company-Employed,12600,
-Lin,Company-Employed,5670,Tianyuan
-David,Self-Employed,1600,
+David,Company-Employed,5760,Good Life
+Moxa,Company-Employed,7200,Tianyuan
+Dolma,Self-Employed,1000,

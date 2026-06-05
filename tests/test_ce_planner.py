@@ -98,6 +98,48 @@ def test_plan_ce_no_negative_salaries():
             assert amt >= 0
 
 
+def test_ce_worker_does_not_exceed_per_day_cap():
+    """A single CE worker earns at most CE_MAX_PER_DAY on any given day."""
+    from src.engine.ce_planner import plan_ce
+    from src.config import CE_MAX_PER_DAY
+    gl = _company(GOOD_LIFE, [3000] * 3)
+    companies = {GOOD_LIFE: gl, TIANYUAN: _company(TIANYUAN, [])}
+
+    # SE earns 0 → residual = 3000/day, far above CE_MAX_PER_DAY
+    ce = CompanyEmployedEmployee("Zhong", 10_000)
+    ce.exclusive_company = GOOD_LIFE
+    ce.preferences = {GOOD_LIFE: {d: 2 for d in range(1, 4)}, TIANYUAN: {}}
+
+    rng = random.Random(42)
+    plan_ce([ce], companies, rng)
+
+    for day in gl.days:
+        amt = gl.get_day(day).ce_salaries.get("Zhong", 0)
+        assert amt <= CE_MAX_PER_DAY, \
+            f"Day {day}: Zhong earned {amt}, exceeds CE_MAX_PER_DAY={CE_MAX_PER_DAY}"
+
+
+def test_unabsorbed_residual_emits_warning(caplog):
+    """When CE pool can't absorb the day's residual, plan_ce logs a WARNING per day."""
+    import logging
+    from src.engine.ce_planner import plan_ce
+    gl = _company(GOOD_LIFE, [3000])  # residual = 3000, one worker can absorb 400
+    companies = {GOOD_LIFE: gl, TIANYUAN: _company(TIANYUAN, [])}
+
+    ce = CompanyEmployedEmployee("Zhong", 10_000)
+    ce.exclusive_company = GOOD_LIFE
+    ce.preferences = {GOOD_LIFE: {1: 2}, TIANYUAN: {}}
+
+    rng = random.Random(42)
+    with caplog.at_level(logging.WARNING):
+        plan_ce([ce], companies, rng)
+
+    assert any("unabsorbed" in msg.lower() for msg in caplog.messages), \
+        "Expected a warning mentioning unabsorbed residual"
+    assert any(f"{GOOD_LIFE} day 1" in msg for msg in caplog.messages), \
+        "Expected the warning to identify the day with unabsorbed residual"
+
+
 def test_validate_ce_non_negative_warns_on_injected_negative(caplog):
     """Validator emits WARNING when a DayLedger contains a negative CE salary."""
     import logging

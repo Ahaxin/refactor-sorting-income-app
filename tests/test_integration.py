@@ -144,14 +144,19 @@ def test_no_per_day_formula_deviation():
     se2 = SelfEmployedEmployee("Bob", 400)
     se2.preferences = {GOOD_LIFE: {d: 2 for d in range(1, 6)}, TIANYUAN: {}}
 
-    ce = CompanyEmployedEmployee("Zhong", 9000)
-    ce.exclusive_company = GOOD_LIFE
-    ce.preferences = {GOOD_LIFE: {d: 2 for d in range(1, 6)}, TIANYUAN: {}}
+    # Need enough CE workers so per-day CE_MAX_PER_DAY capacity covers any residual.
+    # Max income = 3000, CE_MAX_PER_DAY = 500 → 6 CE workers guarantees full coverage.
+    ce_workers = []
+    for i in range(6):
+        w = CompanyEmployedEmployee(f"CE{i}", 2000)
+        w.exclusive_company = GOOD_LIFE
+        w.preferences = {GOOD_LIFE: {d: 2 for d in range(1, 6)}, TIANYUAN: {}}
+        ce_workers.append(w)
 
     rng = random.Random(42)
     schedule_se([se1, se2], companies, rng)
     solve_salaries([se1, se2], companies, rng)
-    plan_ce([ce], companies, rng)
+    plan_ce(ce_workers, companies, rng)
 
     for day in gl.days:
         dl = gl.get_day(day)

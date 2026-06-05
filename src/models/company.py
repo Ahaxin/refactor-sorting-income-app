@@ -35,6 +35,11 @@ class DayLedger:
         self.is_full_ce_absorption = (target == 0)
         return target
 
+    def set_se_day_target(self, target: int) -> None:
+        """Directly set SE day target. Marks CE-only when target is 0."""
+        self._se_day_target = target
+        self.is_full_ce_absorption = (target == 0)
+
     @property
     def se_day_target(self) -> int:
         return self._se_day_target
