@@ -26,7 +26,8 @@ RATIO = 0.40
 DATA_DIR = "data"
 EMPLOYEE_FILE = f"{DATA_DIR}/employee_data.csv"
 INCOME_FILE = f"{DATA_DIR}/income_data.csv"
-PREFERENCE_FILE = f"{DATA_DIR}/updated_preference.csv"
+SE_PREFERENCE_FILE = f"{DATA_DIR}/se_preference.csv"
+CE_PREFERENCE_FILE = f"{DATA_DIR}/ce_preference.csv"
 
 # Output
 OUTPUT_DIR = "output"

@@ -7,7 +7,7 @@ import math
 import pandas as pd
 
 from src.config import (
-    EMPLOYEE_FILE, INCOME_FILE, PREFERENCE_FILE,
+    EMPLOYEE_FILE, INCOME_FILE, SE_PREFERENCE_FILE, CE_PREFERENCE_FILE,
     GOOD_LIFE, TIANYUAN, COMPANY_NAMES,
     TYPE_SELF_EMPLOYED, TYPE_COMPANY_EMPLOYED,
 )
@@ -130,56 +130,66 @@ def _load_preferences(
     companies: dict[str, Company],
 ) -> None:
     """
-    Parse updated_preference.csv and attach preference data to each worker.
-    Stores preferences as a nested dict on each employee:
-        employee.preferences[company][day] = 0 | 1 | 2
+    Load se_preference.csv (SE workers, Day rows, shared across both companies)
+    and ce_preference.csv (CE workers, Company+Day rows, company-specific).
+    Preference values are binary: 0 = unavailable, 1 = available.
     """
-    df = pd.read_csv(PREFERENCE_FILE)
-    logger.info(f"Loaded {PREFERENCE_FILE}: {len(df)} rows")
+    se_dict = {w.name: w for w in se_workers}
+    ce_dict = {w.name: w for w in ce_workers}
 
-    all_workers: dict[str, SelfEmployedEmployee | CompanyEmployedEmployee] = {
-        w.name: w for w in [*se_workers, *ce_workers]
-    }
+    # Initialise all preference dicts
+    for w in [*se_workers, *ce_workers]:
+        w.preferences = {GOOD_LIFE: {}, TIANYUAN: {}}
 
-    # Column headers after "Company" and "Day"
-    pref_cols = [c for c in df.columns if c not in ("Company", "Day")]
-
-    # Verify all preference columns have a matching employee
-    unknown = [c for c in pref_cols if c not in all_workers]
-    if unknown:
-        logger.warning(f"  Preference columns with no matching employee: {unknown}")
-
-    # Initialise preference dicts (base class already declares this field)
-    for worker in all_workers.values():
-        worker.preferences = {GOOD_LIFE: {}, TIANYUAN: {}}
-
-    zero_days: dict[str, int] = {GOOD_LIFE: 0, TIANYUAN: 0}
-
-    for _, row in df.iterrows():
-        company = str(row["Company"]).strip().lower().replace(" ", "_")
+    # --- SE preferences (same availability for both companies) ---
+    se_df = pd.read_csv(SE_PREFERENCE_FILE)
+    logger.info(f"Loaded {SE_PREFERENCE_FILE}: {len(se_df)} rows")
+    se_pref_cols = [c for c in se_df.columns if c != "Day"]
+    unknown_se = [c for c in se_pref_cols if c not in se_dict]
+    if unknown_se:
+        logger.warning(f"  SE preference columns with no matching SE worker: {unknown_se}")
+    se_zero = 0
+    for _, row in se_df.iterrows():
         day = int(row["Day"])
-
-        if company not in (GOOD_LIFE, TIANYUAN):
-            # Normalise "tian yuan" / "tianyuan" variants
-            if "tian" in company:
-                company = TIANYUAN
-            elif "good" in company:
-                company = GOOD_LIFE
-            else:
-                logger.warning(f"  Unknown company '{company}' in preferences — skipping row")
-                continue
-
-        for col in pref_cols:
-            if col not in all_workers:
+        for col in se_pref_cols:
+            if col not in se_dict:
                 continue
             cell = row[col]
-            val = 0 if (cell is None or (isinstance(cell, float) and math.isnan(cell))) else int(cell)
-            all_workers[col].preferences[company][day] = val
+            val = 0 if (cell is None or (isinstance(cell, float) and math.isnan(cell))) else min(1, int(cell))
+            se_dict[col].preferences[GOOD_LIFE][day] = val
+            se_dict[col].preferences[TIANYUAN][day] = val
             if val == 0:
-                zero_days[company] += 1
+                se_zero += 1
+    logger.info(f"  SE preference zero-slots: {se_zero}")
 
-    logger.info(f"  Preference zero-days: {GOOD_LIFE}={zero_days[GOOD_LIFE]}, "
-                f"{TIANYUAN}={zero_days[TIANYUAN]}")
+    # --- CE preferences (company-specific) ---
+    ce_df = pd.read_csv(CE_PREFERENCE_FILE)
+    logger.info(f"Loaded {CE_PREFERENCE_FILE}: {len(ce_df)} rows")
+    ce_pref_cols = [c for c in ce_df.columns if c not in ("Company", "Day")]
+    unknown_ce = [c for c in ce_pref_cols if c not in ce_dict]
+    if unknown_ce:
+        logger.warning(f"  CE preference columns with no matching CE worker: {unknown_ce}")
+    ce_zero: dict[str, int] = {GOOD_LIFE: 0, TIANYUAN: 0}
+    for _, row in ce_df.iterrows():
+        company = str(row["Company"]).strip().lower().replace(" ", "_")
+        if "tian" in company:
+            company = TIANYUAN
+        elif "good" in company:
+            company = GOOD_LIFE
+        else:
+            logger.warning(f"  Unknown company '{company}' in CE preferences — skipping row")
+            continue
+        day = int(row["Day"])
+        for col in ce_pref_cols:
+            if col not in ce_dict:
+                continue
+            cell = row[col]
+            val = 0 if (cell is None or (isinstance(cell, float) and math.isnan(cell))) else min(1, int(cell))
+            ce_dict[col].preferences[company][day] = val
+            if val == 0:
+                ce_zero[company] += 1
+    logger.info(f"  CE preference zero-slots: {GOOD_LIFE}={ce_zero[GOOD_LIFE]}, "
+                f"{TIANYUAN}={ce_zero[TIANYUAN]}")
 
 
 # ---------------------------------------------------------------------------

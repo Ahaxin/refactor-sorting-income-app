@@ -13,7 +13,8 @@ from src.i18n import I18N
 # File Paths
 EMPLOYEE_FILE = "data/employee_data.csv"
 INCOME_FILE = "data/income_data.csv"
-PREF_MATRIX_FILE = "data/updated_preference.csv"
+SE_PREF_FILE = "data/se_preference.csv"
+CE_PREF_FILE = "data/ce_preference.csv"
 OUTPUT_DIR = "output"
 
 # 1. Page Config
@@ -167,11 +168,14 @@ def get_unsaved_changes():
         if s.get("edited_rows") or s.get("added_rows") or s.get("deleted_rows"):
             unsaved.append("income")
             
-    pref_key = f"pref_editor_{st.session_state.get('pref_version', 0)}_{lang}"
-    if pref_key in st.session_state:
-        s = st.session_state[pref_key]
-        if s.get("edited_rows") or s.get("added_rows") or s.get("deleted_rows"):
-            unsaved.append("pref")
+    _pv = st.session_state.get('pref_version', 0)
+    for _pk in [f"se_pref_editor_{_pv}_{lang}", f"ce_pref_editor_{_pv}_{lang}"]:
+        if _pk in st.session_state:
+            s = st.session_state[_pk]
+            if s.get("edited_rows") or s.get("added_rows") or s.get("deleted_rows"):
+                if "pref" not in unsaved:
+                    unsaved.append("pref")
+                break
     return unsaved
 
 def get_type_maps(t):
@@ -243,8 +247,8 @@ def _save_all_callback():
     if "income" in unsaved and "_inc_edited_df" in st.session_state:
         if do_save_income(st.session_state["_inc_edited_df"]):
             saved_any = True
-    if "pref" in unsaved and "_pref_edited_df" in st.session_state:
-        if do_save_pref(st.session_state["_pref_edited_df"]):
+    if "pref" in unsaved and "_se_pref_edited_df" in st.session_state and "_ce_pref_edited_df" in st.session_state:
+        if do_save_pref(st.session_state["_se_pref_edited_df"], st.session_state["_ce_pref_edited_df"]):
             saved_any = True
     if saved_any:
         st.session_state["employees_version"] = st.session_state.get("employees_version", 0) + 1
@@ -277,8 +281,10 @@ if "employees_df" not in st.session_state:
     st.session_state["employees_df"] = pd.read_csv(EMPLOYEE_FILE)
 if "income_df" not in st.session_state:
     st.session_state["income_df"] = pd.read_csv(INCOME_FILE)
-if "pref_df" not in st.session_state:
-    st.session_state["pref_df"] = pd.read_csv(PREF_MATRIX_FILE)
+if "se_pref_df" not in st.session_state:
+    st.session_state["se_pref_df"] = pd.read_csv(SE_PREF_FILE)
+if "ce_pref_df" not in st.session_state:
+    st.session_state["ce_pref_df"] = pd.read_csv(CE_PREF_FILE)
 
 # Dashboard Summary Metrics
 with st.container():
@@ -346,18 +352,23 @@ with tab_employees:
             save_df.to_csv(EMPLOYEE_FILE, index=False)
             st.session_state["employees_df"] = save_df.copy()
 
-            # Sync Preference Matrix columns to current employee names
-            _new_names = [str(n).strip() for n in save_df["name"].tolist()]
-            _pref_old = pd.read_csv(PREF_MATRIX_FILE)
-            _pref_new = _pref_old[["Company", "Day"]].copy()
-            _existing_emp_cols = [c for c in _pref_old.columns if c not in ("Company", "Day")]
-            for _name in _new_names:
-                if _name in _existing_emp_cols:
-                    _pref_new[_name] = _pref_old[_name]
-                else:
-                    _pref_new[_name] = 1
-            _pref_new.to_csv(PREF_MATRIX_FILE, index=False)
-            st.session_state["pref_df"] = _pref_new.copy()
+            # Sync SE and CE preference files to current employee names
+            _se_names = [str(r["name"]).strip() for _, r in save_df.iterrows() if str(r["type"]).strip() == "Self-Employed"]
+            _ce_names = [str(r["name"]).strip() for _, r in save_df.iterrows() if str(r["type"]).strip() == "Company-Employed"]
+            _se_old = pd.read_csv(SE_PREF_FILE)
+            _se_old_cols = [c for c in _se_old.columns if c != "Day"]
+            _se_new = _se_old[["Day"]].copy()
+            for _name in _se_names:
+                _se_new[_name] = _se_old[_name] if _name in _se_old_cols else 1
+            _se_new.to_csv(SE_PREF_FILE, index=False)
+            st.session_state["se_pref_df"] = _se_new.copy()
+            _ce_old = pd.read_csv(CE_PREF_FILE)
+            _ce_old_cols = [c for c in _ce_old.columns if c not in ("Company", "Day")]
+            _ce_new = _ce_old[["Company", "Day"]].copy()
+            for _name in _ce_names:
+                _ce_new[_name] = _ce_old[_name] if _name in _ce_old_cols else 1
+            _ce_new.to_csv(CE_PREF_FILE, index=False)
+            st.session_state["ce_pref_df"] = _ce_new.copy()
             st.session_state["pref_version"] = st.session_state.get("pref_version", 0) + 1
 
             st.session_state["sanity_passed"] = False
@@ -416,23 +427,36 @@ with tab_income:
             _saved_inc.to_csv(INCOME_FILE, index=False)
             st.session_state["income_df"] = _saved_inc.copy()
             
-            # Sync Pref Matrix
+            # Sync SE and CE preference files to new day list
             _new_days = _saved_inc["day"].tolist()
-            _pref_old = pd.read_csv(PREF_MATRIX_FILE)
-            _companies_order = list(dict.fromkeys(_pref_old["Company"].tolist()))
-            _employee_cols_p = [c for c in _pref_old.columns if c not in ("Company", "Day")]
-            _pref_lookup = {(str(r["Company"]), int(r["Day"])): r for _, r in _pref_old.iterrows()}
-            _new_rows = []
+            _se_old = pd.read_csv(SE_PREF_FILE)
+            _se_cols = [c for c in _se_old.columns if c != "Day"]
+            _se_lookup = {int(r["Day"]): r for _, r in _se_old.iterrows()}
+            _se_rows = []
+            for _day in _new_days:
+                _ex = _se_lookup.get(int(_day))
+                _row = {"Day": int(_day)}
+                for _col in _se_cols:
+                    _row[_col] = int(_ex[_col]) if _ex is not None else 1
+                _se_rows.append(_row)
+            _se_new = pd.DataFrame(_se_rows)[["Day"] + _se_cols]
+            _se_new.to_csv(SE_PREF_FILE, index=False)
+            st.session_state["se_pref_df"] = _se_new.copy()
+            _ce_old = pd.read_csv(CE_PREF_FILE)
+            _ce_cols = [c for c in _ce_old.columns if c not in ("Company", "Day")]
+            _companies_order = list(dict.fromkeys(_ce_old["Company"].tolist()))
+            _ce_lookup = {(str(r["Company"]), int(r["Day"])): r for _, r in _ce_old.iterrows()}
+            _ce_rows = []
             for _company in _companies_order:
                 for _day in _new_days:
-                    _existing = _pref_lookup.get((_company, int(_day)))
+                    _ex = _ce_lookup.get((_company, int(_day)))
                     _row = {"Company": _company, "Day": int(_day)}
-                    for _col in _employee_cols_p:
-                        _row[_col] = int(_existing[_col]) if _existing is not None else 1
-                    _new_rows.append(_row)
-            _pref_new = pd.DataFrame(_new_rows)[["Company", "Day"] + _employee_cols_p]
-            _pref_new.to_csv(PREF_MATRIX_FILE, index=False)
-            st.session_state["pref_df"] = _pref_new.copy()
+                    for _col in _ce_cols:
+                        _row[_col] = int(_ex[_col]) if _ex is not None else 1
+                    _ce_rows.append(_row)
+            _ce_new = pd.DataFrame(_ce_rows)[["Company", "Day"] + _ce_cols]
+            _ce_new.to_csv(CE_PREF_FILE, index=False)
+            st.session_state["ce_pref_df"] = _ce_new.copy()
             st.session_state["sanity_passed"] = False
             return True
 
@@ -452,56 +476,78 @@ with tab_income:
                 st.session_state["pref_version"] = st.session_state.get("pref_version", 0) + 1
                 st.rerun()
 
-def _pref_int_to_label_df(df: pd.DataFrame, int_to_label, available_label) -> pd.DataFrame:
+def _int_to_bool_df(df: pd.DataFrame, skip_cols: set) -> pd.DataFrame:
     out = df.copy()
     for col in out.columns:
-        if col in ("Company", "Day"): continue
-        out[col] = out[col].apply(lambda v: int_to_label.get(int(v), available_label) if pd.notna(v) else available_label)
+        if col in skip_cols:
+            continue
+        out[col] = out[col].apply(lambda v: bool(int(v)) if pd.notna(v) else False)
     return out
 
-def _pref_label_to_int_df(df: pd.DataFrame, label_to_int) -> pd.DataFrame:
+def _bool_to_int_df(df: pd.DataFrame, skip_cols: set) -> pd.DataFrame:
     out = df.copy()
     for col in out.columns:
-        if col in ("Company", "Day"): continue
-        out[col] = out[col].apply(lambda v: label_to_int.get(v, 1)).astype("Int64")
+        if col in skip_cols:
+            continue
+        out[col] = out[col].apply(lambda v: 1 if v else 0).astype("Int64")
     return out
 
 with tab_pref:
     st.header(t["header_pref"])
     st.caption(t["caption_pref"])
-    pref_label_unavailable = t["label_unavailable"]
-    pref_label_available = t["label_available"]
-    pref_label_preferred = t["label_preferred"]
-    pref_int_to_label = {0: pref_label_unavailable, 1: pref_label_available, 2: pref_label_preferred}
-    pref_label_to_int = {v: k for k, v in pref_int_to_label.items()}
-    pref_options = [pref_label_unavailable, pref_label_available, pref_label_preferred]
-    st.info(t["info_pref"].format(u=pref_label_unavailable, a=pref_label_available, p=pref_label_preferred))
+    _pv = st.session_state.get("pref_version", 0)
 
-    _pref_df_int = st.session_state["pref_df"]
-    _employee_cols = [c for c in _pref_df_int.columns if c not in ("Company", "Day")]
-    _pref_df_display = _pref_int_to_label_df(_pref_df_int, pref_int_to_label, pref_label_available)
-    _pref_col_config = {"Company": st.column_config.TextColumn(t["col_company"], disabled=True), "Day": st.column_config.NumberColumn(t["col_day"], disabled=True)}
-    for _col in _employee_cols:
-        _pref_col_config[_col] = st.column_config.SelectboxColumn(_col, options=pref_options, required=True)
+    # --- SE Availability ---
+    st.subheader(t["header_se_pref"])
+    st.caption(t["caption_se_pref"])
+    _se_pref_int = st.session_state["se_pref_df"]
+    _se_worker_cols = [c for c in _se_pref_int.columns if c != "Day"]
+    _se_bool_df = _int_to_bool_df(_se_pref_int, {"Day"})
+    _se_col_cfg = {"Day": st.column_config.NumberColumn(t["col_day"], disabled=True)}
+    for _col in _se_worker_cols:
+        _se_col_cfg[_col] = st.column_config.CheckboxColumn(_col, default=True)
+    _se_pref_key = f"se_pref_editor_{_pv}_{lang}"
+    edited_se_pref = st.data_editor(
+        _se_bool_df, num_rows="fixed", column_config=_se_col_cfg,
+        use_container_width=True, height=(len(_se_bool_df) + 1) * 36 + 3, key=_se_pref_key,
+    )
+    st.session_state["_se_pref_edited_df"] = edited_se_pref
 
-    _pref_editor_key = f"pref_editor_{st.session_state.get('pref_version', 0)}_{lang}"
-    edited_pref_display = st.data_editor(_pref_df_display, num_rows="fixed", column_config=_pref_col_config, width="stretch", height=(len(_pref_df_display) + 1) * 36 + 3, key=_pref_editor_key)
-    st.session_state["_pref_edited_df"] = edited_pref_display
+    # --- CE Availability ---
+    st.subheader(t["header_ce_pref"])
+    st.caption(t["caption_ce_pref"])
+    _ce_pref_int = st.session_state["ce_pref_df"]
+    _ce_worker_cols = [c for c in _ce_pref_int.columns if c not in ("Company", "Day")]
+    _ce_bool_df = _int_to_bool_df(_ce_pref_int, {"Company", "Day"})
+    _ce_col_cfg = {
+        "Company": st.column_config.TextColumn(t["col_company"], disabled=True),
+        "Day": st.column_config.NumberColumn(t["col_day"], disabled=True),
+    }
+    for _col in _ce_worker_cols:
+        _ce_col_cfg[_col] = st.column_config.CheckboxColumn(_col, default=True)
+    _ce_pref_key = f"ce_pref_editor_{_pv}_{lang}"
+    edited_ce_pref = st.data_editor(
+        _ce_bool_df, num_rows="fixed", column_config=_ce_col_cfg,
+        use_container_width=True, height=(len(_ce_bool_df) + 1) * 36 + 3, key=_ce_pref_key,
+    )
+    st.session_state["_ce_pref_edited_df"] = edited_ce_pref
 
-    def do_save_pref(display_df):
+    def do_save_pref(se_display_df, ce_display_df):
         try:
-            edited_pref = _pref_label_to_int_df(display_df, pref_label_to_int)
+            saved_se = _bool_to_int_df(se_display_df, {"Day"})
+            saved_ce = _bool_to_int_df(ce_display_df, {"Company", "Day"})
         except (KeyError, ValueError) as _exc:
             st.error(t["err_pref_parse"].format(e=_exc))
             return False
-        else:
-            edited_pref.to_csv(PREF_MATRIX_FILE, index=False)
-            st.session_state["pref_df"] = edited_pref.copy()
-            st.session_state["sanity_passed"] = False
-            return True
+        saved_se.to_csv(SE_PREF_FILE, index=False)
+        saved_ce.to_csv(CE_PREF_FILE, index=False)
+        st.session_state["se_pref_df"] = saved_se.copy()
+        st.session_state["ce_pref_df"] = saved_ce.copy()
+        st.session_state["sanity_passed"] = False
+        return True
 
     if st.button(t["btn_save_pref"], use_container_width=True, type="primary"):
-        if do_save_pref(edited_pref_display):
+        if do_save_pref(edited_se_pref, edited_ce_pref):
             st.success(t["msg_pref_saved"])
             st.session_state["pref_version"] = st.session_state.get("pref_version", 0) + 1
             st.rerun()
@@ -533,7 +579,7 @@ with tab_generate:
     with col_btn1:
         label_sanity = t["btn_run_sanity"]
         if st.button(label_sanity, use_container_width=True, key="btn_run_sanity_check"):
-            _errors = run_sanity_check(st.session_state["employees_df"], st.session_state["pref_df"], st.session_state["income_df"], lang=lang)
+            _errors = run_sanity_check(st.session_state["employees_df"], st.session_state["se_pref_df"], st.session_state["ce_pref_df"], st.session_state["income_df"], lang=lang)
             st.session_state["sanity_errors"] = _errors
             st.session_state["sanity_passed"] = (len(_errors) == 0)
             st.rerun()
