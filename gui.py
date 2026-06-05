@@ -169,7 +169,7 @@ def get_unsaved_changes():
             unsaved.append("income")
             
     _pv = st.session_state.get('pref_version', 0)
-    for _pk in [f"se_pref_editor_{_pv}_{lang}", f"ce_pref_editor_{_pv}_{lang}"]:
+    for _pk in [f"se_pref_editor_{_pv}_{lang}", f"ce_gl_pref_editor_{_pv}_{lang}", f"ce_ty_pref_editor_{_pv}_{lang}"]:
         if _pk in st.session_state:
             s = st.session_state[_pk]
             if s.get("edited_rows") or s.get("added_rows") or s.get("deleted_rows"):
@@ -247,8 +247,9 @@ def _save_all_callback():
     if "income" in unsaved and "_inc_edited_df" in st.session_state:
         if do_save_income(st.session_state["_inc_edited_df"]):
             saved_any = True
-    if "pref" in unsaved and "_se_pref_edited_df" in st.session_state and "_ce_pref_edited_df" in st.session_state:
-        if do_save_pref(st.session_state["_se_pref_edited_df"], st.session_state["_ce_pref_edited_df"]):
+    if ("pref" in unsaved and "_se_pref_edited_df" in st.session_state
+            and "_ce_gl_pref_edited_df" in st.session_state and "_ce_ty_pref_edited_df" in st.session_state):
+        if do_save_pref(st.session_state["_se_pref_edited_df"], st.session_state["_ce_gl_pref_edited_df"], st.session_state["_ce_ty_pref_edited_df"]):
             saved_any = True
     if saved_any:
         st.session_state["employees_version"] = st.session_state.get("employees_version", 0) + 1
@@ -497,13 +498,13 @@ with tab_pref:
     st.caption(t["caption_pref"])
     _pv = st.session_state.get("pref_version", 0)
 
-    # --- SE Availability ---
+    # --- SE Availability (Day column hidden — row order implies day) ---
     st.subheader(t["header_se_pref"])
     st.caption(t["caption_se_pref"])
     _se_pref_int = st.session_state["se_pref_df"]
     _se_worker_cols = [c for c in _se_pref_int.columns if c != "Day"]
     _se_bool_df = _int_to_bool_df(_se_pref_int, {"Day"})
-    _se_col_cfg = {"Day": st.column_config.NumberColumn(t["col_day"], disabled=True)}
+    _se_col_cfg: dict = {"Day": None}  # None hides the column
     for _col in _se_worker_cols:
         _se_col_cfg[_col] = st.column_config.CheckboxColumn(_col, default=True)
     _se_pref_key = f"se_pref_editor_{_pv}_{lang}"
@@ -513,32 +514,46 @@ with tab_pref:
     )
     st.session_state["_se_pref_edited_df"] = edited_se_pref
 
-    # --- CE Availability ---
+    # --- CE Availability (Company column removed — split into two tables by company) ---
     st.subheader(t["header_ce_pref"])
     st.caption(t["caption_ce_pref"])
     _ce_pref_int = st.session_state["ce_pref_df"]
     _ce_worker_cols = [c for c in _ce_pref_int.columns if c not in ("Company", "Day")]
-    _ce_bool_df = _int_to_bool_df(_ce_pref_int, {"Company", "Day"})
-    _ce_col_cfg = {
-        "Company": st.column_config.TextColumn(t["col_company"], disabled=True),
-        "Day": st.column_config.NumberColumn(t["col_day"], disabled=True),
-    }
+    _ce_day_col_cfg: dict = {"Day": st.column_config.NumberColumn(t["col_day"], disabled=True)}
     for _col in _ce_worker_cols:
-        _ce_col_cfg[_col] = st.column_config.CheckboxColumn(_col, default=True)
-    _ce_pref_key = f"ce_pref_editor_{_pv}_{lang}"
-    edited_ce_pref = st.data_editor(
-        _ce_bool_df, num_rows="fixed", column_config=_ce_col_cfg,
-        use_container_width=True, height=(len(_ce_bool_df) + 1) * 36 + 3, key=_ce_pref_key,
-    )
-    st.session_state["_ce_pref_edited_df"] = edited_ce_pref
+        _ce_day_col_cfg[_col] = st.column_config.CheckboxColumn(_col, default=True)
 
-    def do_save_pref(se_display_df, ce_display_df):
+    st.markdown(f"**{t['company_gl']}**")
+    _ce_gl_int = _ce_pref_int[_ce_pref_int["Company"] == "good_life"][["Day"] + _ce_worker_cols].reset_index(drop=True)
+    _ce_gl_bool = _int_to_bool_df(_ce_gl_int, {"Day"})
+    _ce_gl_key = f"ce_gl_pref_editor_{_pv}_{lang}"
+    edited_ce_gl = st.data_editor(
+        _ce_gl_bool, num_rows="fixed", column_config=_ce_day_col_cfg,
+        use_container_width=True, height=(len(_ce_gl_bool) + 1) * 36 + 3, key=_ce_gl_key,
+    )
+    st.session_state["_ce_gl_pref_edited_df"] = edited_ce_gl
+
+    st.markdown(f"**{t['company_ty']}**")
+    _ce_ty_int = _ce_pref_int[_ce_pref_int["Company"] == "tianyuan"][["Day"] + _ce_worker_cols].reset_index(drop=True)
+    _ce_ty_bool = _int_to_bool_df(_ce_ty_int, {"Day"})
+    _ce_ty_key = f"ce_ty_pref_editor_{_pv}_{lang}"
+    edited_ce_ty = st.data_editor(
+        _ce_ty_bool, num_rows="fixed", column_config=_ce_day_col_cfg,
+        use_container_width=True, height=(len(_ce_ty_bool) + 1) * 36 + 3, key=_ce_ty_key,
+    )
+    st.session_state["_ce_ty_pref_edited_df"] = edited_ce_ty
+
+    def do_save_pref(se_df, ce_gl_df, ce_ty_df):
         try:
-            saved_se = _bool_to_int_df(se_display_df, {"Day"})
-            saved_ce = _bool_to_int_df(ce_display_df, {"Company", "Day"})
+            saved_se = _bool_to_int_df(se_df, {"Day"})
+            saved_ce_gl = _bool_to_int_df(ce_gl_df, {"Day"})
+            saved_ce_ty = _bool_to_int_df(ce_ty_df, {"Day"})
         except (KeyError, ValueError) as _exc:
             st.error(t["err_pref_parse"].format(e=_exc))
             return False
+        _gl = saved_ce_gl.copy(); _gl.insert(0, "Company", "good_life")
+        _ty = saved_ce_ty.copy(); _ty.insert(0, "Company", "tianyuan")
+        saved_ce = pd.concat([_gl, _ty], ignore_index=True)
         saved_se.to_csv(SE_PREF_FILE, index=False)
         saved_ce.to_csv(CE_PREF_FILE, index=False)
         st.session_state["se_pref_df"] = saved_se.copy()
@@ -547,7 +562,7 @@ with tab_pref:
         return True
 
     if st.button(t["btn_save_pref"], use_container_width=True, type="primary"):
-        if do_save_pref(edited_se_pref, edited_ce_pref):
+        if do_save_pref(edited_se_pref, edited_ce_gl, edited_ce_ty):
             st.success(t["msg_pref_saved"])
             st.session_state["pref_version"] = st.session_state.get("pref_version", 0) + 1
             st.rerun()
