@@ -67,6 +67,8 @@ I18N = {
         "log_attempt_ok": "尝试 #{n}（种子={seed}）：✅ 全部要求已满足",
         "log_attempt_fail": "尝试 #{n}（种子={seed}）：缺口 {sf}，偏差 {dv}",
         "spinner_generating": "正在生成 — 第 {n} / {max} 次尝试…",
+        "spinner_solving": "正在精确求解（可能需要几秒）…",
+        "warn_solver_residual": "报表已生成，但在当前数据下无法完全满足所有约束。详见下方。报表：`{p}`",
         "warn_deviation": "报表已生成，但 **{n} 天的工资/收入偏差 > {u}**：\n\n",
         "warn_shortfall": "⚠️ **{n} 名自雇员工未达到月度目标**（请尝试更换种子）：\n\n",
         "shortfall_msg": "{name}：目标={target}，实收={actual}，缺口={gap}",
@@ -98,6 +100,11 @@ I18N = {
         "sanity_no_se_employee": "第 {day} 天没有可用的自雇员工（所有值均为 0）。",
         "sanity_inc_missing_pref": "收入中存在但可用性矩阵中缺失的天数：{days}。请重新保存收入标签以自动同步。",
         "sanity_pref_missing_inc": "可用性矩阵中存在但收入中缺失的天数：{days}。请重新保存收入标签以自动同步。",
+        # Feasibility analysis
+        "sanity_infeasible_se_total": "自雇月薪总额（{se}）超过总收入的 40%（{cap}，即 0.4 × {income}）。请降低自雇目标或提高收入。",
+        "sanity_infeasible_ce_total": "公司雇佣总额度（{cap}）不足以吸收剩余收入（需要 {need}）。请提高公司雇佣额度或降低自雇目标。",
+        "sanity_worker_unreachable": "{name} 最多可工作 {days} 天（{days}×400={maxreach}），无法达到月度目标 {target}。请增加其可用天数或降低目标。",
+        "sanity_day_uncoverable": "{company} 第 {day} 天：公司雇佣封顶后仍需自雇补足约 {need}，但当天最多只有 {have} 名自雇可用（最多 {maxse}）。该天必然出现偏差。",
     },
     "en": {
         "page_title": "Salary Planner",
@@ -167,6 +174,8 @@ I18N = {
         "log_attempt_ok": "Attempt #{n} (seed={seed}): ✅ all requirements met",
         "log_attempt_fail": "Attempt #{n} (seed={seed}): {sf} shortfall(s), {dv} deviation(s)",
         "spinner_generating": "Generating — attempt {n} of {max}…",
+        "spinner_solving": "Solving exactly (may take a few seconds)…",
+        "warn_solver_residual": "Report generated, but the current data cannot fully satisfy every constraint. See details below. Report: `{p}`",
         "warn_deviation": "Report generated, but **{n} day(s) have salary/income deviation > {u}**:\n\n",
         "warn_shortfall": "⚠️ **{n} SE worker(s) did not hit their monthly target** (try a different seed):\n\n",
         "shortfall_msg": "{name}: target={target}, actual={actual}, gap={gap}",
@@ -198,5 +207,10 @@ I18N = {
         "sanity_no_se_employee": "Day {day} has no available SE workers (all values are 0).",
         "sanity_inc_missing_pref": "Days present in Income but missing from Availability Matrix: {days}. Re-save the Income tab to auto-sync.",
         "sanity_pref_missing_inc": "Days present in Availability Matrix but missing from Income: {days}. Re-save the Income tab to auto-sync.",
+        # Feasibility analysis
+        "sanity_infeasible_se_total": "Total SE monthly pay ({se}) exceeds 40% of total income ({cap} = 0.4 × {income}). Lower SE targets or raise income.",
+        "sanity_infeasible_ce_total": "Total CE capacity ({cap}) is too low to absorb the residual income ({need} needed). Raise CE caps or lower SE targets.",
+        "sanity_worker_unreachable": "{name} can work at most {days} day(s) ({days}×400={maxreach}), which cannot reach the monthly target {target}. Add availability or lower the target.",
+        "sanity_day_uncoverable": "{company} day {day}: after CE per-day caps, SE must still cover ~{need}, but only {have} SE worker(s) are available that day (max {maxse}). This day will deviate.",
     }
 }

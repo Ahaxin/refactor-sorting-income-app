@@ -1,4 +1,5 @@
 """Tests that exclusive_company is read from employee_data.csv."""
+import src.loaders.data_loader as dl_mod
 from src.config import GOOD_LIFE, TIANYUAN
 
 
@@ -11,13 +12,9 @@ def test_exclusive_company_loaded_from_employee_csv(tmp_path, monkeypatch):
         "Jenny,Self-Employed,1800,\n",
         encoding="utf-8",
     )
-    import src.config as cfg
-    monkeypatch.setattr(cfg, "EMPLOYEE_FILE", str(emp_csv))
-
-    # Re-import to pick up monkeypatched constant
-    import importlib
-    import src.loaders.data_loader as dl_mod
-    importlib.reload(dl_mod)
+    # Patch the constant on the data_loader module itself; monkeypatch auto-restores
+    # it after the test, so no global state leaks to later tests.
+    monkeypatch.setattr(dl_mod, "EMPLOYEE_FILE", str(emp_csv))
 
     se_workers, ce_workers = dl_mod._load_employees()
 
@@ -36,12 +33,7 @@ def test_missing_exclusive_company_column_is_tolerated(tmp_path, monkeypatch):
         "name,type,salary\nJenny,Self-Employed,1800\n",
         encoding="utf-8",
     )
-    import src.config as cfg
-    monkeypatch.setattr(cfg, "EMPLOYEE_FILE", str(emp_csv))
-
-    import importlib
-    import src.loaders.data_loader as dl_mod
-    importlib.reload(dl_mod)
+    monkeypatch.setattr(dl_mod, "EMPLOYEE_FILE", str(emp_csv))
 
     se_workers, _ = dl_mod._load_employees()
     assert se_workers[0].exclusive_company is None

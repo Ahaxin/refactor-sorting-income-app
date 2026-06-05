@@ -667,12 +667,9 @@ with tab_generate:
         if st.button(label_gen, disabled=not is_ready, use_container_width=True, type="primary", key="btn_trigger_generate"):
             from src.loaders.data_loader import load_all
             from src.engine.feasibility import check_se_feasibility
-            from src.engine.ce_planner import plan_ce
-            from src.engine.se_scheduler import schedule_se
-            from src.engine.salary_solver import solve_salaries
+            from src.engine.exact_solver import solve_exact
             from src.reports.excel_writer import generate_report, generate_simplified_report
             from src.config import SE_SALARY_UNIT
-            import random as _rnd
 
             _log_buffer = StringIO()
             _handler = logging.StreamHandler(_log_buffer)
@@ -682,66 +679,43 @@ with tab_generate:
             _prior_level = _root.level
             _root.setLevel(logging.INFO)
 
-            _attempt_logger = logging.getLogger("auto_retry")
-            _max_attempts = 20
-            _best_state = None  # (se, ce, companies, seed, shortfalls, deviations)
-            _success_attempt = None
-            _status = st.status(t["spinner_generating"].format(n=1, max=_max_attempts), expanded=False)
+            _status = st.status(t["spinner_solving"], expanded=False)
 
             try:
-                for _attempt in range(1, _max_attempts + 1):
-                    _status.update(label=t["spinner_generating"].format(n=_attempt, max=_max_attempts))
-                    _seed = _rnd.SystemRandom().randrange(2**32)
-                    _rng = _rnd.Random(_seed)
-                    _se, _ce, _companies = load_all()
-                    check_se_feasibility(_se, _companies)
-                    for _c in _companies.values():
-                        for _d in _c.days: _c.get_day(_d).compute_se_target_from_ce(0)
-                    schedule_se(_se, _companies, _rng)
-                    solve_salaries(_se, _companies, _rng)
-                    plan_ce(_ce, _companies, _rng)
+                _se, _ce, _companies = load_all()
+                check_se_feasibility(_se, _companies)
+                _report = solve_exact(_se, _ce, _companies)
 
-                    _deviations = []
-                    for _c in _companies.values():
-                        for _dn in _c.days:
-                            _dl = _c.get_day(_dn)
-                            if _dl.is_full_ce_absorption: continue
-                            _fval = round(_dl.formula_check); _dev = abs(_fval - _dl.cleaned_income)
-                            if _dev > SE_SALARY_UNIT:
-                                _deviations.append(t["deviation_msg"].format(company=_c.name, day=_dn, formula=_fval, cleaned=_dl.cleaned_income, dev=_dev))
-                    _shortfalls = []
-                    for _w in _se:
-                        _gap = _w.actual_monthly_salary - _w.salary
-                        if _gap != 0:
-                            _shortfalls.append(t["shortfall_msg"].format(name=_w.name, target=_w.salary, actual=_w.actual_monthly_salary, gap=_gap))
+                _deviations = [
+                    t["deviation_msg"].format(
+                        company=_cn, day=_dn,
+                        formula=_companies[_cn].get_day(_dn).cleaned_income - _dev,
+                        cleaned=_companies[_cn].get_day(_dn).cleaned_income, dev=abs(_dev))
+                    for _cn, _dn, _dev in _report.deviations
+                ]
+                _se_by_name = {w.name: w for w in _se}
+                _shortfalls = [
+                    t["shortfall_msg"].format(
+                        name=_nm, target=_se_by_name[_nm].salary,
+                        actual=_se_by_name[_nm].actual_monthly_salary, gap=_gap)
+                    for _nm, _gap in _report.shortfalls
+                ]
 
-                    _best_state = (_se, _ce, _companies, _seed, _shortfalls, _deviations)
-
-                    if not _shortfalls and not _deviations:
-                        _attempt_logger.info(t["log_attempt_ok"].format(n=_attempt, seed=_seed))
-                        _success_attempt = _attempt
-                        break
-                    else:
-                        _attempt_logger.warning(t["log_attempt_fail"].format(n=_attempt, seed=_seed, sf=len(_shortfalls), dv=len(_deviations)))
-
-                # Write Excel only once — for the winning attempt, or the final attempt if none won
-                assert _best_state is not None
-                _se, _ce, _companies, _seed, _last_shortfalls, _last_deviations = _best_state
                 _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                _last_path = os.path.join(OUTPUT_DIR, f"report_seed{_seed}_{_ts}.xlsx")
-                _last_simple_path = os.path.join(OUTPUT_DIR, f"report_seed{_seed}_{_ts}_simple.xlsx")
-                generate_report(_se, _ce, _companies, seed=_seed, output_path=_last_path)
+                _last_path = os.path.join(OUTPUT_DIR, f"report_{_ts}.xlsx")
+                _last_simple_path = os.path.join(OUTPUT_DIR, f"report_{_ts}_simple.xlsx")
+                generate_report(_se, _ce, _companies, seed=0, output_path=_last_path)
                 generate_simplified_report(_se, _ce, _companies, output_path=_last_simple_path)
                 _status.update(state="complete", expanded=False)
 
-                if _success_attempt is not None:
-                    st.success(t["msg_gen_success_attempts"].format(n=_success_attempt, p=_last_path))
+                if _report.perfect:
+                    st.success(t["msg_gen_success"].format(p=_last_path))
                 else:
-                    st.warning(t["warn_no_success"].format(n=_max_attempts, p=_last_path))
-                    if _last_shortfalls:
-                        st.warning(t["warn_shortfall"].format(n=len(_last_shortfalls)) + "\n".join(f"• {s}" for s in _last_shortfalls))
-                    if _last_deviations:
-                        st.warning(t["warn_deviation"].format(n=len(_last_deviations), u=SE_SALARY_UNIT) + "\n".join(f"• {d}" for d in _last_deviations))
+                    st.warning(t["warn_solver_residual"].format(p=_last_path))
+                    if _shortfalls:
+                        st.warning(t["warn_shortfall"].format(n=len(_shortfalls)) + "\n".join(f"• {s}" for s in _shortfalls))
+                    if _deviations:
+                        st.warning(t["warn_deviation"].format(n=len(_deviations), u=SE_SALARY_UNIT) + "\n".join(f"• {d}" for d in _deviations))
 
                 st.session_state["last_output_path"] = _last_path
                 st.session_state["last_simple_path"] = _last_simple_path

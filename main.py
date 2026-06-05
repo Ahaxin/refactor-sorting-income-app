@@ -12,9 +12,7 @@ from datetime import datetime
 from src.config import OUTPUT_DIR
 from src.loaders.data_loader import load_all
 from src.engine.feasibility import check_se_feasibility
-from src.engine.ce_planner import plan_ce
-from src.engine.se_scheduler import schedule_se
-from src.engine.salary_solver import solve_salaries
+from src.engine.exact_solver import solve_exact
 from src.reports.excel_writer import generate_report
 
 
@@ -53,7 +51,6 @@ def main() -> None:
 
     seed, provenance = _resolve_seed(args)
     logger.info(f"Random seed: {seed} ({provenance})")
-    rng = random.Random(seed)
 
     # 1. Load data
     se_workers, ce_workers, companies = load_all()
@@ -61,22 +58,15 @@ def main() -> None:
     # 2. Pre-flight feasibility check
     check_se_feasibility(se_workers, companies)
 
-    # 3. SE day targets (assume CE = 0 for scheduling phase)
-    for company in companies.values():
-        for day in company.days:
-            dl = company.get_day(day)
-            dl.compute_se_target_from_ce(0)
+    # 3. Exact joint SE+CE solve (deterministic — replaces schedule/solve/CE-plan)
+    report = solve_exact(se_workers, ce_workers, companies)
+    if not report.perfect:
+        logger.warning(
+            f"Solver could not fully satisfy all constraints: "
+            f"{len(report.shortfalls)} shortfall(s), {len(report.deviations)} deviation(s)."
+        )
 
-    # 4. SE schedule
-    schedule_se(se_workers, companies, rng)
-
-    # 5. SE salary solver
-    solve_salaries(se_workers, companies, rng)
-
-    # 6. CE plan (formula residual after SE)
-    plan_ce(ce_workers, companies, rng)
-
-    # 7. Generate report
+    # 4. Generate report
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = os.path.join(OUTPUT_DIR, f"report_seed{seed}_{timestamp}.xlsx")
     generate_report(se_workers, ce_workers, companies, seed=seed, output_path=output_path)

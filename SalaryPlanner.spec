@@ -95,7 +95,7 @@ a = Analysis(
     excludes=[
         "tkinter",
         "matplotlib",
-        "scipy",
+        # scipy is REQUIRED by src/engine/exact_solver.py (HiGHS MILP) — do not exclude.
         "IPython",
         "jupyter",
         "notebook",
