@@ -7,10 +7,10 @@ SE_SALARY_UNIT = 2    # SE individual daily salary must be even integer
 CE_SALARY_UNIT = 5    # CE individual daily salary must be multiple of 5
 INCOME_UNIT = 5       # I_clean rounded to multiple of 5
 
-# Salary bounds for SE workers (per day). CE has no per-day lower bound.
-MIN_SALARY = 120
-MAX_SALARY = 400      # SE individual per-day cap
-CE_MAX_PER_DAY = 420  # CE individual per-day cap (allowed higher than SE)
+# Salary bounds for SE workers (per day).
+MIN_SALARY = 60       # SE minimum daily pay
+MAX_SALARY = 130      # SE individual per-day cap (default)
+CE_MAX_PER_DAY = 140  # CE individual per-day cap (default)
 
 # Used to estimate preferred number of working days per SE worker
 PREDEFINED_DAILY = 180

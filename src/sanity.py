@@ -29,11 +29,15 @@ def check_feasibility(
     ce_pref_df: pd.DataFrame,
     income_df: pd.DataFrame,
     t: dict,
+    se_max_per_day: int | None = None,
+    ce_max_per_day: int | None = None,
 ) -> list[str]:
     """Structural feasibility analysis. Every check is a true *necessary* condition
     for a zero-shortfall / zero-deviation schedule, so a solvable dataset produces
     no messages — these only fire when the data makes the target genuinely
     impossible, pointing at the specific worker / day / total at fault."""
+    _se_max = se_max_per_day if se_max_per_day is not None else MAX_SALARY
+    _ce_max = ce_max_per_day if ce_max_per_day is not None else CE_MAX_PER_DAY
     errors: list[str] = []
     try:
         days = [int(d) for d in income_df["day"].tolist()]
@@ -77,9 +81,9 @@ def check_feasibility(
                 se_avail[n].add(d)
     for n, target in se:
         ndays = len(se_avail[n])
-        if ndays * MAX_SALARY < target:
+        if ndays * _se_max < target:
             errors.append(t["sanity_worker_unreachable"].format(
-                name=n, days=ndays, maxreach=ndays * MAX_SALARY, target=target))
+                name=n, days=ndays, maxreach=ndays * _se_max, target=target))
 
     # F4 — per (company, day): even devoting every eligible SE worker to this one
     # company cannot bridge what CE (per-day capped) leaves uncovered.
@@ -103,13 +107,13 @@ def check_feasibility(
         n_se_day = sum(1 for n in se_avail if d in se_avail[n])
         for comp_key in ("good_life", "tianyuan"):
             I = inc[d][0 if comp_key == "good_life" else 1]
-            max_ce = min(I, ce_avail.get((comp_key, d), 0) * CE_MAX_PER_DAY)
+            max_ce = min(I, ce_avail.get((comp_key, d), 0) * _ce_max)
             se_needed = RATIO * (I - max_ce)
-            if se_needed > 0 and n_se_day * MAX_SALARY < se_needed:
+            if se_needed > 0 and n_se_day * _se_max < se_needed:
                 errors.append(t["sanity_day_uncoverable"].format(
                     company=comp_label.get(comp_key, comp_key), day=d,
                     need=int(math.ceil(se_needed)),
-                    have=n_se_day, maxse=n_se_day * MAX_SALARY))
+                    have=n_se_day, maxse=n_se_day * _se_max))
     return errors
 
 
@@ -119,6 +123,8 @@ def run_sanity_check(
     ce_pref_df: pd.DataFrame,
     income_df: pd.DataFrame | None = None,
     lang: str = "en",
+    se_max_per_day: int | None = None,
+    ce_max_per_day: int | None = None,
 ) -> list[str]:
     """
     Returns a list of human-readable error strings.
@@ -194,6 +200,7 @@ def run_sanity_check(
     # Structural feasibility — only once basic integrity holds (days aligned, no
     # missing workers), so the feasibility math has clean inputs.
     if not errors and income_df is not None:
-        errors.extend(check_feasibility(employees_df, se_pref_df, ce_pref_df, income_df, t))
+        errors.extend(check_feasibility(employees_df, se_pref_df, ce_pref_df, income_df, t,
+                                        se_max_per_day=se_max_per_day, ce_max_per_day=ce_max_per_day))
 
     return errors

@@ -631,11 +631,30 @@ with tab_pref:
 with tab_generate:
     st.header(t["header_gen"])
     st.subheader(t["summary_header"])
-    
+
     if "sanity_passed" not in st.session_state: st.session_state["sanity_passed"] = False
     if "sanity_errors" not in st.session_state: st.session_state["sanity_errors"] = []
     if "last_output_path" not in st.session_state: st.session_state["last_output_path"] = None
     if "last_log" not in st.session_state: st.session_state["last_log"] = ""
+
+    # Salary bound settings
+    st.caption(t["caption_salary_bounds"])
+    col_se, col_ce = st.columns(2)
+    with col_se:
+        from src.config import MAX_SALARY as _DEFAULT_SE_MAX, CE_MAX_PER_DAY as _DEFAULT_CE_MAX
+        se_max = st.number_input(
+            t["label_se_max"], min_value=60, max_value=500,
+            value=st.session_state.get("se_max_per_day", _DEFAULT_SE_MAX),
+            step=2, key="input_se_max",
+            help=t["help_se_max"])
+        st.session_state["se_max_per_day"] = se_max
+    with col_ce:
+        ce_max = st.number_input(
+            t["label_ce_max"], min_value=0, max_value=1000,
+            value=st.session_state.get("ce_max_per_day", _DEFAULT_CE_MAX),
+            step=5, key="input_ce_max",
+            help=t["help_ce_max"])
+        st.session_state["ce_max_per_day"] = ce_max
 
     # Status indicator
     if st.session_state["sanity_errors"]:
@@ -655,7 +674,11 @@ with tab_generate:
     with col_btn1:
         label_sanity = t["btn_run_sanity"]
         if st.button(label_sanity, use_container_width=True, key="btn_run_sanity_check"):
-            _errors = run_sanity_check(st.session_state["employees_df"], st.session_state["se_pref_df"], st.session_state["ce_pref_df"], st.session_state["income_df"], lang=lang)
+            _errors = run_sanity_check(
+                st.session_state["employees_df"], st.session_state["se_pref_df"],
+                st.session_state["ce_pref_df"], st.session_state["income_df"],
+                lang=lang,
+                se_max_per_day=se_max, ce_max_per_day=ce_max)
             st.session_state["sanity_errors"] = _errors
             st.session_state["sanity_passed"] = (len(_errors) == 0)
             st.rerun()
@@ -684,7 +707,8 @@ with tab_generate:
             try:
                 _se, _ce, _companies = load_all()
                 check_se_feasibility(_se, _companies)
-                _report = solve_exact(_se, _ce, _companies)
+                _report = solve_exact(_se, _ce, _companies,
+                                      se_max_per_day=se_max, ce_max_per_day=ce_max)
 
                 _deviations = [
                     t["deviation_msg"].format(

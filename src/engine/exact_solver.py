@@ -40,7 +40,7 @@ import numpy as np
 from scipy.optimize import milp, LinearConstraint, Bounds
 from scipy import sparse
 
-from src.config import MIN_SALARY, MAX_SALARY, CE_MAX_PER_DAY, CE_SALARY_UNIT, SE_SALARY_UNIT
+from src.config import MIN_SALARY, MAX_SALARY, CE_MAX_PER_DAY, SE_SALARY_UNIT, CE_SALARY_UNIT
 from src.models.company import Company
 from src.models.employee import SelfEmployedEmployee, CompanyEmployedEmployee
 
@@ -61,10 +61,6 @@ W_SPREAD = 1              # reward per active SE (worker, company, day) slot
 # full budget. A good incumbent appears within a few seconds.
 SPREAD_TIME_LIMIT = 10.0
 
-A_MAX = MAX_SALARY // SE_SALARY_UNIT     # 200
-A_MIN = MIN_SALARY // SE_SALARY_UNIT     # 60
-B_MAX = CE_MAX_PER_DAY // CE_SALARY_UNIT  # 100
-
 
 @dataclass
 class SolveReport:
@@ -84,12 +80,30 @@ def solve_exact(
     ce_workers: list[CompanyEmployedEmployee],
     companies: dict[str, Company],
     time_limit: float = 60.0,
+    se_max_per_day: int | None = None,
+    ce_max_per_day: int | None = None,
 ) -> SolveReport:
-    """Solve the month exactly and write salaries back into the model in-place."""
+    """Solve the month exactly and write salaries back into the model in-place.
+
+    Parameters
+    ----------
+    se_max_per_day : int or None
+        Max daily salary for SE workers (default: MAX_SALARY from config).
+    ce_max_per_day : int or None
+        Max daily salary for CE workers (default: CE_MAX_PER_DAY from config).
+    """
     import time
     logger.info("=" * 60)
     logger.info("EXACT SOLVER (MILP / HiGHS)")
     logger.info("=" * 60)
+
+    # --- resolve configurable bounds ---
+    _se_max = se_max_per_day if se_max_per_day is not None else MAX_SALARY
+    _ce_max = ce_max_per_day if ce_max_per_day is not None else CE_MAX_PER_DAY
+    _a_max = _se_max // SE_SALARY_UNIT
+    _a_min = MIN_SALARY // SE_SALARY_UNIT
+    _b_max = _ce_max // CE_SALARY_UNIT
+    logger.info(f"  SE bounds: [{MIN_SALARY}, {_se_max}]  CE max: {_ce_max}")
 
     comp_names = list(companies.keys())
     days = sorted(next(iter(companies.values())).days)
@@ -128,7 +142,7 @@ def solve_exact(
             for c in comp_names:
                 if not se_elig_c(w, c, d):
                     continue
-                add(f"a|{w.name}|{c}|{d}", 0, A_MAX)
+                add(f"a|{w.name}|{c}|{d}", 0, _a_max)
                 add(f"y|{w.name}|{c}|{d}", 0, 1)
         add(f"sf+|{w.name}", 0, w.salary)   # under-delivery, currency
         add(f"sf-|{w.name}", 0, w.salary)   # over-delivery, currency
@@ -137,7 +151,7 @@ def solve_exact(
             for c in comp_names:
                 if not ce_elig(w, c, d):
                     continue
-                add(f"b|{w.name}|{c}|{d}", 0, B_MAX)
+                add(f"b|{w.name}|{c}|{d}", 0, _b_max)
                 if w.exclusive_company is None:
                     add(f"z|{w.name}|{c}|{d}", 0, 1)
     for c in comp_names:
@@ -161,8 +175,8 @@ def solve_exact(
                     continue
                 a = idx[f"a|{w.name}|{c}|{d}"]
                 y = idx[f"y|{w.name}|{c}|{d}"]
-                con({a: 1, y: -A_MIN}, 0, None)   # a >= 60 y
-                con({a: 1, y: -A_MAX}, None, 0)   # a <= 200 y
+                con({a: 1, y: -_a_min}, 0, None)   # a >= A_MIN·y
+                con({a: 1, y: -_a_max}, None, 0)   # a <= A_MAX·y
                 ys.append(y)
             if len(ys) > 1:
                 con({yi: 1 for yi in ys}, None, 1)
@@ -191,7 +205,7 @@ def solve_exact(
                 cap_coefs[b] = 5
                 if flex:
                     z = idx[f"z|{w.name}|{c}|{d}"]
-                    con({b: 1, z: -B_MAX}, None, 0)   # b <= 100 z
+                    con({b: 1, z: -_b_max}, None, 0)   # b <= B_MAX·z
                     zs.append(z)
             if flex and len(zs) > 1:
                 con({zz: 1 for zz in zs}, None, 1)
