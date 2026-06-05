@@ -46,12 +46,20 @@ from src.models.employee import SelfEmployedEmployee, CompanyEmployedEmployee
 
 logger = logging.getLogger(__name__)
 
-# Objective weights (per unit of violation). Formula deviation and SE shortfall
-# are the only objectives — minimising them is the whole goal. A secondary
-# "spread" term was tried but it forces HiGHS to prove optimality of a cosmetic
-# tie-break, ballooning solve time from ~3s to >60s for no functional gain.
+# Objective weights. Violations dominate (must be driven to zero first); the
+# spread reward is a strictly smaller tie-break that, among all zero-violation
+# schedules, prefers the one where the most SE workers work each day — i.e. each
+# worker's fixed monthly target is split across as many days as possible, every
+# active day still paying >= MIN_SALARY. Bound: (#SE slots) * W_SPREAD must stay
+# below one deviation unit (W_DEVIATION) so spread can never buy a violation.
 W_DEVIATION = 10_000      # per 5-currency unit of |formula - income|
 W_SHORTFALL = 100_000     # per 2-currency unit of SE monthly miss
+W_SPREAD = 1              # reward per active SE (worker, company, day) slot
+
+# Phase 2 (spread maximisation) is a tie-break, not correctness — cap its time
+# separately so phase 1 (which decides shortfalls/deviations) always gets the
+# full budget. A good incumbent appears within a few seconds.
+SPREAD_TIME_LIMIT = 10.0
 
 A_MAX = MAX_SALARY // SE_SALARY_UNIT     # 200
 A_MIN = MIN_SALARY // SE_SALARY_UNIT     # 60
@@ -215,30 +223,54 @@ def solve_exact(
         chi.append(np.inf if hi is None else hi)
     A = sparse.csr_matrix((data, (ri, ci)), shape=(len(rows), n))
 
-    cobj = np.zeros(n)
-    for name, j in idx.items():
-        if name.startswith(("sp|", "sn|")):
-            cobj[j] = W_DEVIATION
-        elif name.startswith(("sf+|", "sf-|")):
-            cobj[j] = W_SHORTFALL
+    lb_arr = np.array(lb, float)
+    ub_arr = np.array(ub, float)
+    constraints = LinearConstraint(A, clo, chi)
+    viol_idx = [j for nm, j in idx.items() if nm.startswith(("sp|", "sn|", "sf+|", "sf-|"))]
+    y_idx = [j for nm, j in idx.items() if nm.startswith("y|")]
 
     logger.info(f"  variables={n}  constraints={len(rows)}")
     t0 = time.time()
-    res = milp(
-        c=cobj,
-        constraints=LinearConstraint(A, clo, chi),
-        integrality=integrality,
-        bounds=Bounds(np.array(lb, float), np.array(ub, float)),
-        options={"time_limit": time_limit, "mip_rel_gap": 0.0},
-    )
-    dt = time.time() - t0
-    logger.info(f"  HiGHS status={res.status} ({res.message}) time={dt:.1f}s")
 
+    # Phase 1 — minimise violations exactly (deterministic, ~10s). This decides
+    # feasibility and the best achievable shortfall/deviation level.
+    c1 = np.zeros(n)
+    for nm, j in idx.items():
+        if nm.startswith(("sp|", "sn|")):
+            c1[j] = W_DEVIATION
+        elif nm.startswith(("sf+|", "sf-|")):
+            c1[j] = W_SHORTFALL
+    res = milp(c=c1, constraints=constraints, integrality=integrality,
+               bounds=Bounds(lb_arr, ub_arr),
+               options={"time_limit": time_limit, "mip_rel_gap": 0.0})
     if res.x is None:
+        dt = time.time() - t0
         logger.error("  Solver returned no solution — model infeasible/unbounded.")
         return SolveReport(status=res.status, feasible=False, solve_time=dt)
+    best_x = res.x
+    logger.info(f"  phase 1 (violations) status={res.status} time={time.time()-t0:.1f}s")
 
-    x = res.x
+    # Phase 2 — among schedules with that minimal violation level, put as many SE
+    # workers as possible on each day: pin the violation variables and maximise
+    # the count of active SE slots (each still paying >= MIN_SALARY). Pinning
+    # means this tie-break can never reintroduce a shortfall or deviation.
+    if y_idx:
+        lb2, ub2 = lb_arr.copy(), ub_arr.copy()
+        for j in viol_idx:
+            lb2[j] = ub2[j] = round(res.x[j])
+        c2 = np.zeros(n)
+        for j in y_idx:
+            c2[j] = -W_SPREAD
+        res2 = milp(c=c2, constraints=constraints, integrality=integrality,
+                    bounds=Bounds(lb2, ub2),
+                    options={"time_limit": SPREAD_TIME_LIMIT, "mip_rel_gap": 1e-2})
+        if res2.x is not None:
+            best_x = res2.x
+            logger.info(f"  phase 2 (max SE/day) slots={int(round(sum(res2.x[j] for j in y_idx)))} "
+                        f"total_time={time.time()-t0:.1f}s")
+
+    dt = time.time() - t0
+    x = best_x
     _write_back(x, idx, se_workers, ce_workers, companies, comp_names, days,
                 se_elig_c, ce_elig)
 

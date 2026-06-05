@@ -70,3 +70,22 @@ def test_availability_respected(solved):
     for w in (*se, *ce):
         for (c, d) in w.schedule:
             assert w.preferences.get(c, {}).get(d, 0) > 0
+
+
+def test_se_work_is_maximally_spread(solved):
+    """The spread objective should put as many SE workers per day as possible:
+    each worker's target split across close to the most days they could work
+    (bounded by eligible days and target/MIN_SALARY), every day still >= MIN."""
+    import math
+    se, _, _, _ = solved
+    theoretical_max = 0
+    for w in se:
+        elig_days = {d for d in w.preferences.get("good_life", {}) if w.preferences["good_life"][d] > 0}
+        theoretical_max += min(len(elig_days), w.salary // MIN_SALARY)
+    total_slots = sum(len(w.schedule) for w in se)
+    # Without the spread objective this lands far lower (~0.6× of max); require
+    # near-maximal spread so the tie-break can't be silently dropped.
+    assert total_slots >= 0.9 * theoretical_max, f"{total_slots} vs max {theoretical_max}"
+    for w in se:
+        for sal in w.schedule.values():
+            assert sal >= MIN_SALARY
