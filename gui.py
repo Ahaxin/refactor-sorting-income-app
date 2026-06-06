@@ -640,8 +640,11 @@ with tab_generate:
     # Salary bound settings
     st.caption(t["caption_salary_bounds"])
     col_se, col_ce = st.columns(2)
+    # GUI-facing default per-day caps (intentionally independent of the
+    # src.config fallbacks used by the CLI/solver/tests).
+    _DEFAULT_SE_MAX = 168
+    _DEFAULT_CE_MAX = 420
     with col_se:
-        from src.config import MAX_SALARY as _DEFAULT_SE_MAX, CE_MAX_PER_DAY as _DEFAULT_CE_MAX
         se_max = st.number_input(
             t["label_se_max"], min_value=60, max_value=500,
             value=st.session_state.get("se_max_per_day", _DEFAULT_SE_MAX),
