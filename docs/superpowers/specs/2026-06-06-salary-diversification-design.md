@@ -21,8 +21,9 @@ checks; if anything regressed, revert to the pristine solved schedule.
 
 **Non-Goals:**
 - No change to the solver itself or its objective.
-- No change to the CLI (`main.py`) in this iteration — GUI generate path only.
 - Not trying to maximize variety at the cost of any guarantee.
+
+**In scope:** both the GUI generate path **and** the CLI (`main.py`).
 
 ## Invariants (must hold after tuning)
 
@@ -115,8 +116,9 @@ class VerifyReport:
         # or any cap/bound/unit violation.
 
 def verify_schedule(se_workers, ce_workers, companies,
-                    se_max, ce_max) -> VerifyReport
+                    se_max=None, ce_max=None) -> VerifyReport
     # Recomputes everything from current model state. Read-only.
+    # se_max/ce_max None -> MAX_SALARY / CE_MAX_PER_DAY from config.
 
 def snapshot_schedules(se_workers, ce_workers, companies) -> dict
 def restore_schedules(snapshot, se_workers, ce_workers, companies) -> None
@@ -158,6 +160,31 @@ are preserved), so no extra write-back is needed for them.
   deviation/shortfall summary built from `_report` remains accurate because the
   invariants guarantee the tuned state matches the solver baseline.
 - If reverted, surface a translated `st.warning` (`warn_tuning_reverted`).
+
+### CLI wiring: `main.py`
+
+- Add `--variation PCT` (`type=int, default=15`, help: "±% band for salary
+  diversification; 0 disables"). Validate/clamp to `[0, 50]`.
+- Reuse the resolved `seed` (from `--seed` / `SALARY_SEED` / auto) for
+  `diversify_schedule` so a CLI run is reproducible via the same seed it already
+  logs.
+- After `solve_exact(...)` and before `generate_report(...)`, apply the same
+  guardrail as the GUI:
+  ```python
+  if variation > 0:
+      snap = snapshot_schedules(se_workers, ce_workers, companies)
+      diversify_schedule(se_workers, ce_workers, companies,
+                         pct=variation/100, seed=seed)
+      v = verify_schedule(se_workers, ce_workers, companies,
+                          se_max=None, ce_max=None)   # config defaults
+      if v.regressed_from(report.deviations, report.shortfalls):
+          restore_schedules(snap, se_workers, ce_workers, companies)
+          logger.warning("Post-tuning checks regressed — reverted to solved schedule.")
+      else:
+          logger.info("Post-tuning diversification applied — checks passed.")
+  ```
+  The CLI uses the config-default caps (`MAX_SALARY`, `CE_MAX_PER_DAY`), matching
+  the solver call it already makes with defaults.
 
 ### i18n: `src/i18n.py`
 
