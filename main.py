@@ -13,6 +13,9 @@ from src.config import OUTPUT_DIR
 from src.loaders.data_loader import load_all
 from src.engine.feasibility import check_se_feasibility
 from src.engine.exact_solver import solve_exact
+from src.engine.diversify import (
+    diversify_schedule, verify_schedule, snapshot_schedules, restore_schedules,
+)
 from src.reports.excel_writer import generate_report
 
 
@@ -43,7 +46,10 @@ def setup_logging() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Monthly salary plan generator")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
+    parser.add_argument("--variation", type=int, default=15,
+                        help="+/-%% band for salary diversification (0 disables)")
     args = parser.parse_args()
+    variation = max(0, min(50, args.variation))
 
     setup_logging()
     logger = logging.getLogger(__name__)
@@ -65,6 +71,19 @@ def main() -> None:
             f"Solver could not fully satisfy all constraints: "
             f"{len(report.shortfalls)} shortfall(s), {len(report.deviations)} deviation(s)."
         )
+
+    # 3b. Post-tuning: diversify duplicate salaries within a +/-% band, then
+    # re-check. Revert to the solved schedule if anything regressed.
+    if variation > 0:
+        snap = snapshot_schedules(se_workers, ce_workers, companies)
+        diversify_schedule(se_workers, ce_workers, companies,
+                           pct=variation / 100, seed=seed)
+        vr = verify_schedule(se_workers, ce_workers, companies)
+        if vr.regressed_from(report.deviations, report.shortfalls):
+            restore_schedules(snap, se_workers, ce_workers, companies)
+            logger.warning("Post-tuning checks regressed — reverted to solved schedule.")
+        else:
+            logger.info("Post-tuning diversification applied — checks passed.")
 
     # 4. Generate report
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
