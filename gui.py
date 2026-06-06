@@ -642,10 +642,10 @@ with tab_generate:
     col_smin, col_se, col_ce, col_div = st.columns(4)
     # GUI-facing default per-day caps (intentionally independent of the
     # src.config fallbacks used by the CLI/solver/tests).
-    _DEFAULT_SE_MIN = 60
+    _DEFAULT_SE_MIN = 100
     _DEFAULT_SE_MAX = 168
     _DEFAULT_CE_MAX = 420
-    _DEFAULT_DIV_PCT = 15
+    _DEFAULT_DIV_PCT = 50
     with col_se:
         se_max = st.number_input(
             t["label_se_max"], min_value=60, max_value=500,
@@ -681,7 +681,7 @@ with tab_generate:
     col_sc_on, col_sc_seed, _col_sc_pad = st.columns([1, 1, 2])
     with col_sc_on:
         scatter_on = st.checkbox(
-            t["label_scatter"], value=st.session_state.get("scatter_on", False),
+            t["label_scatter"], value=st.session_state.get("scatter_on", True),
             key="input_scatter_on", help=t["help_scatter"])
         st.session_state["scatter_on"] = scatter_on
     with col_sc_seed:
