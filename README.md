@@ -177,15 +177,34 @@ Streamlit opens a browser tab at `http://localhost:8501`.
 |-----|---------|
 | **Employees** | Add, remove, or edit workers — name, type (SE/CE), monthly salary/cap, exclusive company |
 | **Income** | Edit the 30-day income table for Good Life and Tianyuan |
-| **Preference Matrix** | Set each worker's availability (0 = unavailable, 1 = available, 2 = preferred) per company per day |
-| **Generate** | Run sanity check and produce the Excel report |
+| **Availability** | Set each worker's availability (checkbox) per company per day |
+| **Generate** | Run sanity check, adjust the salary-shaping controls, and produce the Excel reports |
 
 ### Workflow
 
-1. Edit data in the **Employees**, **Income**, and **Preference Matrix** tabs — click **Save** in each tab after making changes.
+1. Edit data in the **Employees**, **Income**, and **Availability** tabs — click **Save** in each tab after making changes.
 2. Switch to **Generate** and click **Run Sanity Check**. Errors are shown as a bulleted list; fix them and re-check.
-3. Once sanity passes, optionally change the **Seed** field (pre-filled with a random integer), then click **Generate**.
-4. Download the report via the **Download Report** button that appears on success.
+3. Once sanity passes, adjust the salary-shaping controls if desired (see below), then click **Generate**.
+4. Download the full and simplified reports via the buttons that appear on success.
+
+### Salary-shaping controls (Generate tab)
+
+These controls change *how* the fixed amounts are distributed across days and
+workers. They never break the guarantees — each day's 40% formula and every SE
+monthly target / CE cap stay **exact** — and after any randomization the app
+re-runs all checks and automatically reverts to the plain solved schedule if
+anything would regress, so a report is never worse than the exact solve.
+
+| Control | Default | Effect |
+|---------|--------:|--------|
+| **SE Daily Max** | 168 | Highest pay an SE worker can earn on a day. |
+| **SE Daily Min** | 100 | Lowest pay on a day an SE worker actually works. Raising it **concentrates** the schedule — each worker packs their monthly target into fewer, higher-paid days, lifting values off the floor (fewer workers per day). |
+| **CE Daily Max** | 420 | Highest pay a CE worker can earn on a day. |
+| **Variation Band (%)** | 50 | After solving, daily salaries are randomly **diversified** within ±(this % of the legal pay range) to cut duplicate values. `0` disables. |
+| **Randomize solve (scatter)** | on | Solves a randomized objective so daily pay spreads across the range instead of piling at the minimum. Change the **Scatter seed** to re-roll a different (still-exact) schedule. |
+
+> To reproduce the original "spread to the minimum" behavior, set **SE Daily Min = 60**,
+> **Variation Band = 0%**, and turn **scatter off**.
 
 ### Output Filename
 
@@ -210,7 +229,21 @@ python main.py --seed 42
 
 # Or set seed via environment variable
 $env:SALARY_SEED=42; python main.py
+
+# Concentrate SE pay into fewer, higher-paid days (minimum 100/day)
+python main.py --se-min 100
+
+# Randomize the solve so daily pay spreads out instead of piling at the floor
+# (uses the run seed, so change --seed to re-roll)
+python main.py --scatter
+
+# Post-solve diversification band, as % of the legal pay range (0 disables)
+python main.py --variation 50
 ```
+
+> **Salary-shaping flags** (`--se-min`, `--scatter`, `--variation`) mirror the GUI's
+> Generate-tab controls and keep every guarantee exact; see
+> [Salary-shaping controls](#salary-shaping-controls-generate-tab) for details.
 
 ### Output
 
