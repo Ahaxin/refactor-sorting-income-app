@@ -48,6 +48,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     parser.add_argument("--variation", type=int, default=15,
                         help="diversification band as %% of the legal pay range (0 disables)")
+    parser.add_argument("--se-min", type=int, default=None,
+                        help="concentrate knob: min SE daily pay on a worked day "
+                             "(default: config MIN_SALARY); higher = fewer, richer days")
     args = parser.parse_args()
     variation = max(0, min(50, args.variation))
 
@@ -65,7 +68,7 @@ def main() -> None:
     check_se_feasibility(se_workers, companies)
 
     # 3. Exact joint SE+CE solve (deterministic — replaces schedule/solve/CE-plan)
-    report = solve_exact(se_workers, ce_workers, companies)
+    report = solve_exact(se_workers, ce_workers, companies, se_min_per_day=args.se_min)
     if not report.perfect:
         logger.warning(
             f"Solver could not fully satisfy all constraints: "
@@ -77,8 +80,8 @@ def main() -> None:
     if variation > 0:
         snap = snapshot_schedules(se_workers, ce_workers, companies)
         diversify_schedule(se_workers, ce_workers, companies,
-                           pct=variation / 100, seed=seed)
-        vr = verify_schedule(se_workers, ce_workers, companies)
+                           pct=variation / 100, seed=seed, se_min=args.se_min)
+        vr = verify_schedule(se_workers, ce_workers, companies, se_min=args.se_min)
         if vr.regressed_from(report.deviations, report.shortfalls):
             restore_schedules(snap, se_workers, ce_workers, companies)
             logger.warning("Post-tuning checks regressed — reverted to solved schedule.")

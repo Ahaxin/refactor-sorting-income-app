@@ -58,6 +58,18 @@ def test_ce_caps_and_daily_bounds(solved):
                 assert c == w.exclusive_company
 
 
+def test_se_min_per_day_raises_floor(simple_scenario):
+    """The concentrate knob: raising se_min_per_day forces every worked SE day to
+    pay at least that much (workers pack into fewer, higher-paid days)."""
+    se = simple_scenario["se_workers"]
+    ce = simple_scenario["ce_workers"]
+    comp = simple_scenario["companies"]
+    solve_exact(se, ce, comp, se_min_per_day=100)
+    for w in se:
+        for sal in w.schedule.values():
+            assert sal >= 100, f"{w.name}: worked-day pay {sal} < se_min 100"
+
+
 def test_one_company_per_day(solved):
     se, ce, _, _ = solved
     for w in (*se, *ce):

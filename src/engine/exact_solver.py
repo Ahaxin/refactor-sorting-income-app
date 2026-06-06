@@ -82,6 +82,7 @@ def solve_exact(
     time_limit: float = 60.0,
     se_max_per_day: int | None = None,
     ce_max_per_day: int | None = None,
+    se_min_per_day: int | None = None,
 ) -> SolveReport:
     """Solve the month exactly and write salaries back into the model in-place.
 
@@ -91,6 +92,12 @@ def solve_exact(
         Max daily salary for SE workers (default: MAX_SALARY from config).
     ce_max_per_day : int or None
         Max daily salary for CE workers (default: CE_MAX_PER_DAY from config).
+    se_min_per_day : int or None
+        Min daily salary for an SE worker on a day they work (default: MIN_SALARY
+        from config). Raising it is the "concentrate" knob: workers pack their
+        monthly target into fewer days at higher daily pay, lifting values off the
+        floor. May introduce deviations when a day's small SE need can no longer
+        be met by a single worker above the higher minimum.
     """
     import time
     logger.info("=" * 60)
@@ -100,10 +107,11 @@ def solve_exact(
     # --- resolve configurable bounds ---
     _se_max = se_max_per_day if se_max_per_day is not None else MAX_SALARY
     _ce_max = ce_max_per_day if ce_max_per_day is not None else CE_MAX_PER_DAY
+    _se_min = se_min_per_day if se_min_per_day is not None else MIN_SALARY
     _a_max = _se_max // SE_SALARY_UNIT
-    _a_min = MIN_SALARY // SE_SALARY_UNIT
+    _a_min = _se_min // SE_SALARY_UNIT
     _b_max = _ce_max // CE_SALARY_UNIT
-    logger.info(f"  SE bounds: [{MIN_SALARY}, {_se_max}]  CE max: {_ce_max}")
+    logger.info(f"  SE bounds: [{_se_min}, {_se_max}]  CE max: {_ce_max}")
 
     comp_names = list(companies.keys())
     days = sorted(next(iter(companies.values())).days)

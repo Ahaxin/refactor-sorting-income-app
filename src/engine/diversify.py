@@ -33,21 +33,24 @@ def _band(pct, value_range, unit):
 
 
 def diversify_schedule(se_workers, ce_workers, companies, pct=0.15, seed=0,
-                       se_max=None, ce_max=None):
+                       se_max=None, ce_max=None, se_min=None):
     """Diversify SE and CE daily salaries in place. ``pct <= 0`` is a no-op.
 
     The drift band is NOT a per-cell percentage; it is one absolute band per
     worker-type, ``pct`` of that type's legal range (so floor/cap cells get real
-    room): SE range is [MIN_SALARY, se_max], CE range is [0, ce_max]."""
+    room): SE range is [se_min, se_max], CE range is [0, ce_max]. ``se_min`` must
+    match the solver's ``se_min_per_day`` so tuning never pushes a concentrated
+    value back below the floor it was solved against."""
     if not pct or pct <= 0:
         return
     se_hi = se_max if se_max is not None else MAX_SALARY
     ce_hi = ce_max if ce_max is not None else CE_MAX_PER_DAY
+    se_lo = se_min if se_min is not None else MIN_SALARY
     rng = random.Random(seed)
-    se_band = _band(pct, se_hi - MIN_SALARY, SE_SALARY_UNIT)
+    se_band = _band(pct, se_hi - se_lo, SE_SALARY_UNIT)
     ce_band = _band(pct, ce_hi - 0, CE_SALARY_UNIT)
     _diversify_matrix(se_workers, companies, "se_salaries",
-                      SE_SALARY_UNIT, MIN_SALARY, se_hi, se_band, rng)
+                      SE_SALARY_UNIT, se_lo, se_hi, se_band, rng)
     _diversify_matrix(ce_workers, companies, "ce_salaries",
                       CE_SALARY_UNIT, CE_SALARY_UNIT, ce_hi, ce_band, rng)
 
@@ -156,11 +159,14 @@ class VerifyReport:
                 or bool(self.bound_violations))
 
 
-def verify_schedule(se_workers, ce_workers, companies, se_max=None, ce_max=None):
+def verify_schedule(se_workers, ce_workers, companies, se_max=None, ce_max=None,
+                    se_min=None):
     """Recompute deviations / shortfalls / cap+bound violations from the live
-    model state. Read-only. ``se_max``/``ce_max`` None -> config defaults."""
+    model state. Read-only. ``se_max``/``ce_max``/``se_min`` None -> config
+    defaults (``se_min`` must match the solver's floor)."""
     se_hi = se_max if se_max is not None else MAX_SALARY
     ce_hi = ce_max if ce_max is not None else CE_MAX_PER_DAY
+    se_lo = se_min if se_min is not None else MIN_SALARY
 
     deviations = []
     for c in companies:
@@ -188,7 +194,7 @@ def verify_schedule(se_workers, ce_workers, companies, se_max=None, ce_max=None)
     bound_violations = []
     for w in se_workers:
         for (c, d), sal in w.schedule.items():
-            if sal % SE_SALARY_UNIT != 0 or not (MIN_SALARY <= sal <= se_hi):
+            if sal % SE_SALARY_UNIT != 0 or not (se_lo <= sal <= se_hi):
                 bound_violations.append(f"SE {w.name} @ {c} day {d}: {sal}")
     for w in ce_workers:
         for (c, d), sal in w.schedule.items():

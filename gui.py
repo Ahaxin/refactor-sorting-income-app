@@ -639,9 +639,10 @@ with tab_generate:
 
     # Salary bound settings
     st.caption(t["caption_salary_bounds"])
-    col_se, col_ce, col_div = st.columns(3)
+    col_smin, col_se, col_ce, col_div = st.columns(4)
     # GUI-facing default per-day caps (intentionally independent of the
     # src.config fallbacks used by the CLI/solver/tests).
+    _DEFAULT_SE_MIN = 60
     _DEFAULT_SE_MAX = 168
     _DEFAULT_CE_MAX = 420
     _DEFAULT_DIV_PCT = 15
@@ -652,6 +653,15 @@ with tab_generate:
             step=2, key="input_se_max",
             help=t["help_se_max"])
         st.session_state["se_max_per_day"] = se_max
+    with col_smin:
+        # Concentrate knob: higher floor -> fewer, higher-paid SE days. Capped at
+        # se_max so a_min never exceeds a_max (which would be infeasible).
+        se_min = st.number_input(
+            t["label_se_min"], min_value=60, max_value=se_max,
+            value=min(st.session_state.get("se_min_per_day", _DEFAULT_SE_MIN), se_max),
+            step=2, key="input_se_min",
+            help=t["help_se_min"])
+        st.session_state["se_min_per_day"] = se_min
     with col_ce:
         ce_max = st.number_input(
             t["label_ce_max"], min_value=0, max_value=1000,
@@ -719,7 +729,8 @@ with tab_generate:
                 _se, _ce, _companies = load_all()
                 check_se_feasibility(_se, _companies)
                 _report = solve_exact(_se, _ce, _companies,
-                                      se_max_per_day=se_max, ce_max_per_day=ce_max)
+                                      se_max_per_day=se_max, ce_max_per_day=ce_max,
+                                      se_min_per_day=se_min)
 
                 # Post-tuning: diversify duplicate salaries within a +/-% band,
                 # then re-run checks. Revert to the solved schedule if anything
@@ -732,9 +743,11 @@ with tab_generate:
                     )
                     _snap = snapshot_schedules(_se, _ce, _companies)
                     diversify_schedule(_se, _ce, _companies, pct=div_pct / 100,
-                                       seed=0, se_max=se_max, ce_max=ce_max)
+                                       seed=0, se_max=se_max, ce_max=ce_max,
+                                       se_min=se_min)
                     _vr = verify_schedule(_se, _ce, _companies,
-                                          se_max=se_max, ce_max=ce_max)
+                                          se_max=se_max, ce_max=ce_max,
+                                          se_min=se_min)
                     if _vr.regressed_from(_report.deviations, _report.shortfalls):
                         restore_schedules(_snap, _se, _ce, _companies)
                         logging.getLogger("gui").warning(

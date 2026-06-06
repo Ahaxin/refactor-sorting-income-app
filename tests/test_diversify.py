@@ -149,6 +149,18 @@ def test_se_values_within_band(se_dup_scenario):
             assert abs(sal - orig) <= band
 
 
+def test_diversify_respects_se_min(se_dup_scenario):
+    """With a raised se_min (concentrate knob), tuning must not push any SE value
+    below se_min, and the band scales to [se_min, se_max]."""
+    se = se_dup_scenario["se_workers"]
+    ce = se_dup_scenario["ce_workers"]
+    companies = se_dup_scenario["companies"]
+    diversify_schedule(se, ce, companies, pct=0.15, seed=0, se_max=168, se_min=100)
+    for w in se:
+        for sal in w.schedule.values():
+            assert sal >= 100, f"{w.name}: {sal} < se_min 100"
+
+
 def test_legal_range_band_gives_floor_cells_more_room():
     """Floor cells (60) get room from pct*(se_max-60), exceeding the old
     per-cell pct*value limit that throttled small values."""
