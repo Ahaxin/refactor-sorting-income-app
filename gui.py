@@ -639,11 +639,12 @@ with tab_generate:
 
     # Salary bound settings
     st.caption(t["caption_salary_bounds"])
-    col_se, col_ce = st.columns(2)
+    col_se, col_ce, col_div = st.columns(3)
     # GUI-facing default per-day caps (intentionally independent of the
     # src.config fallbacks used by the CLI/solver/tests).
     _DEFAULT_SE_MAX = 168
     _DEFAULT_CE_MAX = 420
+    _DEFAULT_DIV_PCT = 15
     with col_se:
         se_max = st.number_input(
             t["label_se_max"], min_value=60, max_value=500,
@@ -658,6 +659,13 @@ with tab_generate:
             step=5, key="input_ce_max",
             help=t["help_ce_max"])
         st.session_state["ce_max_per_day"] = ce_max
+    with col_div:
+        div_pct = st.number_input(
+            t["label_variation"], min_value=0, max_value=50,
+            value=st.session_state.get("div_pct", _DEFAULT_DIV_PCT),
+            step=1, key="input_div_pct",
+            help=t["help_variation"])
+        st.session_state["div_pct"] = div_pct
 
     # Status indicator
     if st.session_state["sanity_errors"]:
@@ -713,6 +721,29 @@ with tab_generate:
                 _report = solve_exact(_se, _ce, _companies,
                                       se_max_per_day=se_max, ce_max_per_day=ce_max)
 
+                # Post-tuning: diversify duplicate salaries within a +/-% band,
+                # then re-run checks. Revert to the solved schedule if anything
+                # regressed (the guarantees the solver hit must be preserved).
+                _reverted = False
+                if div_pct > 0:
+                    from src.engine.diversify import (
+                        diversify_schedule, verify_schedule,
+                        snapshot_schedules, restore_schedules,
+                    )
+                    _snap = snapshot_schedules(_se, _ce, _companies)
+                    diversify_schedule(_se, _ce, _companies, pct=div_pct / 100,
+                                       seed=0, se_max=se_max, ce_max=ce_max)
+                    _vr = verify_schedule(_se, _ce, _companies,
+                                          se_max=se_max, ce_max=ce_max)
+                    if _vr.regressed_from(_report.deviations, _report.shortfalls):
+                        restore_schedules(_snap, _se, _ce, _companies)
+                        logging.getLogger("gui").warning(
+                            "Post-tuning checks regressed — reverted to solved schedule.")
+                        _reverted = True
+                    else:
+                        logging.getLogger("gui").info(
+                            "Post-tuning diversification applied — checks passed.")
+
                 _deviations = [
                     t["deviation_msg"].format(
                         company=_cn, day=_dn,
@@ -734,6 +765,9 @@ with tab_generate:
                 generate_report(_se, _ce, _companies, seed=0, output_path=_last_path)
                 generate_simplified_report(_se, _ce, _companies, output_path=_last_simple_path)
                 _status.update(state="complete", expanded=False)
+
+                if _reverted:
+                    st.warning(t["warn_tuning_reverted"])
 
                 if _report.perfect:
                     st.success(t["msg_gen_success"].format(p=_last_path))
