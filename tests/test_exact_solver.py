@@ -70,6 +70,30 @@ def test_se_min_per_day_raises_floor(simple_scenario):
             assert sal >= 100, f"{w.name}: worked-day pay {sal} < se_min 100"
 
 
+def test_scatter_seed_is_deterministic(simple_scenario):
+    """A given scatter_seed must reproduce the same schedule."""
+    se = simple_scenario["se_workers"]
+    ce = simple_scenario["ce_workers"]
+    comp = simple_scenario["companies"]
+    solve_exact(se, ce, comp, scatter_seed=7)
+    first = {w.name: dict(w.schedule) for w in (*se, *ce)}
+    solve_exact(se, ce, comp, scatter_seed=7)
+    second = {w.name: dict(w.schedule) for w in (*se, *ce)}
+    assert first == second
+
+
+def test_scatter_seed_no_worse_than_spread(simple_scenario):
+    """Scatter pins the Phase-1 violation minimum, so it can never add shortfalls
+    or deviations relative to the default spread objective."""
+    se = simple_scenario["se_workers"]
+    ce = simple_scenario["ce_workers"]
+    comp = simple_scenario["companies"]
+    base = solve_exact(se, ce, comp)
+    scat = solve_exact(se, ce, comp, scatter_seed=7)
+    assert len(scat.shortfalls) == len(base.shortfalls)
+    assert len(scat.deviations) == len(base.deviations)
+
+
 def test_one_company_per_day(solved):
     se, ce, _, _ = solved
     for w in (*se, *ce):

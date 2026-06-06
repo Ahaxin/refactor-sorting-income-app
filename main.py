@@ -51,6 +51,9 @@ def main() -> None:
     parser.add_argument("--se-min", type=int, default=None,
                         help="concentrate knob: min SE daily pay on a worked day "
                              "(default: config MIN_SALARY); higher = fewer, richer days")
+    parser.add_argument("--scatter", action="store_true",
+                        help="randomize the solver objective (uses the run seed) so "
+                             "daily SE pay spreads out instead of piling at the floor")
     args = parser.parse_args()
     variation = max(0, min(50, args.variation))
 
@@ -68,7 +71,8 @@ def main() -> None:
     check_se_feasibility(se_workers, companies)
 
     # 3. Exact joint SE+CE solve (deterministic — replaces schedule/solve/CE-plan)
-    report = solve_exact(se_workers, ce_workers, companies, se_min_per_day=args.se_min)
+    report = solve_exact(se_workers, ce_workers, companies, se_min_per_day=args.se_min,
+                         scatter_seed=(seed if args.scatter else None))
     if not report.perfect:
         logger.warning(
             f"Solver could not fully satisfy all constraints: "

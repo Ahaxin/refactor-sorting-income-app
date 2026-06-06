@@ -83,6 +83,7 @@ def solve_exact(
     se_max_per_day: int | None = None,
     ce_max_per_day: int | None = None,
     se_min_per_day: int | None = None,
+    scatter_seed: int | None = None,
 ) -> SolveReport:
     """Solve the month exactly and write salaries back into the model in-place.
 
@@ -98,6 +99,12 @@ def solve_exact(
         monthly target into fewer days at higher daily pay, lifting values off the
         floor. May introduce deviations when a day's small SE need can no longer
         be met by a single worker above the higher minimum.
+    scatter_seed : int or None
+        When set, Phase 2 optimises a RANDOM direction over the SE day-pay
+        variables (violations pinned) instead of maximising days. This returns a
+        varied vertex of the zero-violation face — more spread-out daily values —
+        at the cost of the "most workers per day" property. Deterministic per
+        seed; never adds shortfalls/deviations (Phase-1 minimum is pinned).
     """
     import time
     logger.info("=" * 60)
@@ -250,6 +257,7 @@ def solve_exact(
     constraints = LinearConstraint(A, clo, chi)
     viol_idx = [j for nm, j in idx.items() if nm.startswith(("sp|", "sn|", "sf+|", "sf-|"))]
     y_idx = [j for nm, j in idx.items() if nm.startswith("y|")]
+    a_idx = [j for nm, j in idx.items() if nm.startswith("a|")]
 
     logger.info(f"  variables={n}  constraints={len(rows)}")
     t0 = time.time()
@@ -281,14 +289,24 @@ def solve_exact(
         for j in viol_idx:
             lb2[j] = ub2[j] = round(res.x[j])
         c2 = np.zeros(n)
-        for j in y_idx:
-            c2[j] = -W_SPREAD
+        if scatter_seed is not None:
+            # Scatter: optimise a random direction over the SE day-pay variables
+            # (violations pinned) so HiGHS returns a varied vertex of the
+            # zero-violation face rather than the all-at-floor max-spread one.
+            rng = np.random.default_rng(scatter_seed)
+            for j in a_idx:
+                c2[j] = rng.uniform(-1.0, 1.0)
+            phase2_label = "scatter"
+        else:
+            for j in y_idx:
+                c2[j] = -W_SPREAD
+            phase2_label = "max SE/day"
         res2 = milp(c=c2, constraints=constraints, integrality=integrality,
                     bounds=Bounds(lb2, ub2),
                     options={"time_limit": SPREAD_TIME_LIMIT, "mip_rel_gap": 1e-2})
         if res2.x is not None:
             best_x = res2.x
-            logger.info(f"  phase 2 (max SE/day) slots={int(round(sum(res2.x[j] for j in y_idx)))} "
+            logger.info(f"  phase 2 ({phase2_label}) slots={int(round(sum(res2.x[j] for j in y_idx)))} "
                         f"total_time={time.time()-t0:.1f}s")
 
     dt = time.time() - t0

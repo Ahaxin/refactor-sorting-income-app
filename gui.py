@@ -677,6 +677,22 @@ with tab_generate:
             help=t["help_variation"])
         st.session_state["div_pct"] = div_pct
 
+    # Scatter (randomized solver objective) — opt-in. OFF = today's spread.
+    col_sc_on, col_sc_seed, _col_sc_pad = st.columns([1, 1, 2])
+    with col_sc_on:
+        scatter_on = st.checkbox(
+            t["label_scatter"], value=st.session_state.get("scatter_on", False),
+            key="input_scatter_on", help=t["help_scatter"])
+        st.session_state["scatter_on"] = scatter_on
+    with col_sc_seed:
+        scatter_seed_val = st.number_input(
+            t["label_scatter_seed"], min_value=0, max_value=999999,
+            value=st.session_state.get("scatter_seed", 0),
+            step=1, key="input_scatter_seed", disabled=not scatter_on,
+            help=t["help_scatter_seed"])
+        st.session_state["scatter_seed"] = scatter_seed_val
+    scatter_seed = scatter_seed_val if scatter_on else None
+
     # Status indicator
     if st.session_state["sanity_errors"]:
         st.markdown(f"### {t['status_error']}")
@@ -730,7 +746,7 @@ with tab_generate:
                 check_se_feasibility(_se, _companies)
                 _report = solve_exact(_se, _ce, _companies,
                                       se_max_per_day=se_max, ce_max_per_day=ce_max,
-                                      se_min_per_day=se_min)
+                                      se_min_per_day=se_min, scatter_seed=scatter_seed)
 
                 # Post-tuning: diversify duplicate salaries within a +/-% band,
                 # then re-run checks. Revert to the solved schedule if anything
