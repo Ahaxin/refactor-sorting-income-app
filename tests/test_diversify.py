@@ -2,7 +2,6 @@
 randomization). All tests use hand-built 'solved' schedules so they are fast and
 deterministic — no MILP solve required."""
 import copy
-import math
 
 import pytest
 
@@ -14,6 +13,7 @@ from src.config import (
 )
 from src.engine.diversify import (
     diversify_schedule, verify_schedule, snapshot_schedules, restore_schedules,
+    _band,
 )
 
 
@@ -29,22 +29,23 @@ def _set_ce(company: Company, day: int, name: str, sal: int, worker) -> None:
 
 @pytest.fixture
 def se_dup_scenario():
-    """2 SE workers, 2 days, all four daily salaries identical (100), with a clean
-    4-cell cycle available. GL cleaned income = se_total/0.4 = 500 each day."""
+    """2 SE workers, 3 days, all daily salaries identical (100), with multiple
+    4-cell cycles available. GL cleaned income = se_total/0.4 = 500 each day."""
     gl = Company(GOOD_LIFE)
     ty = Company(TIANYUAN)
-    for d in (1, 2):
+    days = (1, 2, 3)
+    for d in days:
         gl.add_day(d, 500)
         ty.add_day(d, 0)
     companies = {GOOD_LIFE: gl, TIANYUAN: ty}
 
-    alice = SelfEmployedEmployee("Alice", 200)
-    bob = SelfEmployedEmployee("Bob", 200)
+    alice = SelfEmployedEmployee("Alice", 300)
+    bob = SelfEmployedEmployee("Bob", 300)
     for w in (alice, bob):
-        w.preferences = {GOOD_LIFE: {1: 2, 2: 2}, TIANYUAN: {1: 0, 2: 0}}
-        for d in (1, 2):
+        w.preferences = {GOOD_LIFE: {d: 2 for d in days}, TIANYUAN: {d: 0 for d in days}}
+        for d in days:
             _set_se(gl, d, w.name, 100, w)
-    for d in (1, 2):
+    for d in days:
         gl.get_day(d).set_se_day_target(gl.get_day(d).se_total)
 
     return {"se_workers": [alice, bob], "ce_workers": [], "companies": companies}
@@ -52,11 +53,12 @@ def se_dup_scenario():
 
 @pytest.fixture
 def ce_dup_scenario():
-    """2 CE workers, 2 days, all four daily salaries identical (100). GL cleaned
-    income = ce_total = 200 each day (no SE). Caps (300) are non-binding."""
+    """2 CE workers, 3 days, all daily salaries identical (100). GL cleaned
+    income = ce_total = 200 each day (no SE). Cap 300 = monthly (non-violated)."""
     gl = Company(GOOD_LIFE)
     ty = Company(TIANYUAN)
-    for d in (1, 2):
+    days = (1, 2, 3)
+    for d in days:
         gl.add_day(d, 200)
         ty.add_day(d, 0)
     companies = {GOOD_LIFE: gl, TIANYUAN: ty}
@@ -65,10 +67,10 @@ def ce_dup_scenario():
     y = CompanyEmployedEmployee("Yi", 300)
     for w in (x, y):
         w.exclusive_company = GOOD_LIFE
-        w.preferences = {GOOD_LIFE: {1: 2, 2: 2}, TIANYUAN: {}}
-        for d in (1, 2):
+        w.preferences = {GOOD_LIFE: {d: 2 for d in days}, TIANYUAN: {}}
+        for d in days:
             _set_ce(gl, d, w.name, 100, w)
-    for d in (1, 2):
+    for d in days:
         gl.get_day(d).set_se_day_target(0)
 
     return {"se_workers": [], "ce_workers": [x, y], "companies": companies}
@@ -83,6 +85,15 @@ def _per_day_totals(companies, attr):
 
 def _monthly(workers):
     return {w.name: w.actual_monthly_salary for w in workers}
+
+
+def test_band_is_percent_of_legal_range():
+    # 15% of SE range (168-60)=108 -> 16.2 -> floored to even = 16
+    assert _band(0.15, 168 - 60, SE_SALARY_UNIT) == 16
+    # 15% of CE range (420-0)=420 -> 63 -> floored to multiple of 5 = 60
+    assert _band(0.15, 420, CE_SALARY_UNIT) == 60
+    # default SE caps (130-60)=70 -> 10.5 -> 10
+    assert _band(0.15, 130 - 60, SE_SALARY_UNIT) == 10
 
 
 def test_diversify_reduces_duplicate_values(se_dup_scenario):
@@ -130,11 +141,43 @@ def test_se_values_within_band(se_dup_scenario):
     companies = se_dup_scenario["companies"]
     before = {(w.name, col): sal for w in se for col, sal in w.schedule.items()}
     pct = 0.15
-    diversify_schedule(se, ce, companies, pct=pct, seed=0)
+    diversify_schedule(se, ce, companies, pct=pct, seed=0)  # default se_max=130
+    band = _band(pct, MAX_SALARY - MIN_SALARY, SE_SALARY_UNIT)
     for w in se:
         for col, sal in w.schedule.items():
             orig = before[(w.name, col)]
-            assert abs(sal - orig) <= math.ceil(orig * pct)
+            assert abs(sal - orig) <= band
+
+
+def test_legal_range_band_gives_floor_cells_more_room():
+    """Floor cells (60) get room from pct*(se_max-60), exceeding the old
+    per-cell pct*value limit that throttled small values."""
+    gl, ty = Company(GOOD_LIFE), Company(TIANYUAN)
+    for d in (1, 2):
+        gl.add_day(d, 450)
+        ty.add_day(d, 0)
+    companies = {GOOD_LIFE: gl, TIANYUAN: ty}
+    a = SelfEmployedEmployee("A", 180)
+    b = SelfEmployedEmployee("B", 180)
+    vals = {"A": {1: 60, 2: 120}, "B": {1: 120, 2: 60}}
+    for w in (a, b):
+        w.preferences = {GOOD_LIFE: {1: 2, 2: 2}, TIANYUAN: {}}
+        for d in (1, 2):
+            _set_se(gl, d, w.name, vals[w.name][d], w)
+    for d in (1, 2):
+        gl.get_day(d).set_se_day_target(gl.get_day(d).se_total)
+    se = [a, b]
+    orig = {(w.name, c): s for w in se for c, s in w.schedule.items()}
+
+    diversify_schedule(se, [], companies, pct=0.15, seed=0, se_max=168)
+
+    band = _band(0.15, 168 - MIN_SALARY, SE_SALARY_UNIT)             # 16
+    old_floor_budget = (int(60 * 0.15) // SE_SALARY_UNIT) * SE_SALARY_UNIT  # 8
+    drifts = [abs(s - orig[(w.name, c)]) for w in se for c, s in w.schedule.items()]
+    assert max(drifts) <= band
+    assert max(drifts) > old_floor_budget
+    for w in se:
+        assert w.actual_monthly_salary == 180  # monthly preserved
 
 
 def test_ce_invariants_preserved(ce_dup_scenario):

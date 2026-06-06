@@ -26,22 +26,38 @@ from src.config import (
 ITER_FACTOR = 8
 
 
+def _band(pct, value_range, unit):
+    """Drift band derived from the input scale: the largest multiple of ``unit``
+    that does not exceed ``pct`` of the legal value range (cap - floor)."""
+    return (int(pct * value_range) // unit) * unit
+
+
 def diversify_schedule(se_workers, ce_workers, companies, pct=0.15, seed=0,
                        se_max=None, ce_max=None):
-    """Diversify SE and CE daily salaries in place. ``pct <= 0`` is a no-op."""
+    """Diversify SE and CE daily salaries in place. ``pct <= 0`` is a no-op.
+
+    The drift band is NOT a per-cell percentage; it is one absolute band per
+    worker-type, ``pct`` of that type's legal range (so floor/cap cells get real
+    room): SE range is [MIN_SALARY, se_max], CE range is [0, ce_max]."""
     if not pct or pct <= 0:
         return
     se_hi = se_max if se_max is not None else MAX_SALARY
     ce_hi = ce_max if ce_max is not None else CE_MAX_PER_DAY
     rng = random.Random(seed)
+    se_band = _band(pct, se_hi - MIN_SALARY, SE_SALARY_UNIT)
+    ce_band = _band(pct, ce_hi - 0, CE_SALARY_UNIT)
     _diversify_matrix(se_workers, companies, "se_salaries",
-                      SE_SALARY_UNIT, MIN_SALARY, se_hi, pct, rng)
+                      SE_SALARY_UNIT, MIN_SALARY, se_hi, se_band, rng)
     _diversify_matrix(ce_workers, companies, "ce_salaries",
-                      CE_SALARY_UNIT, CE_SALARY_UNIT, ce_hi, pct, rng)
+                      CE_SALARY_UNIT, CE_SALARY_UNIT, ce_hi, ce_band, rng)
 
 
-def _diversify_matrix(workers, companies, attr, unit, lo, hi, pct, rng):
-    """Run cycle moves over one worker-type matrix, then write values back."""
+def _diversify_matrix(workers, companies, attr, unit, lo, hi, band, rng):
+    """Run cycle moves over one worker-type matrix, then write values back.
+
+    ``band`` is the absolute max drift allowed for every cell of this type."""
+    if band < unit:
+        return
     value: dict = {}                 # (wi, col) -> current salary
     original: dict = {}              # (wi, col) -> solved salary
     cols_of: dict = {}               # wi -> [col, ...]
@@ -59,9 +75,6 @@ def _diversify_matrix(workers, companies, attr, unit, lo, hi, pct, rng):
     if not movable:
         return
 
-    # Per-cell drift budget: largest multiple of unit <= original * pct.
-    budget = {k: (int(o * pct) // unit) * unit for k, o in original.items()}
-
     attempts = ITER_FACTOR * len(value)
     for _ in range(attempts):
         wi1 = rng.choice(movable)
@@ -74,10 +87,10 @@ def _diversify_matrix(workers, companies, attr, unit, lo, hi, pct, rng):
         c11, c12 = (wi1, k1), (wi1, k2)
         c21, c22 = (wi2, k1), (wi2, k2)
         dlo, dhi = _feasible_delta(
-            [(value[c11], original[c11], budget[c11], +1),
-             (value[c12], original[c12], budget[c12], -1),
-             (value[c21], original[c21], budget[c21], -1),
-             (value[c22], original[c22], budget[c22], +1)],
+            [(value[c11], original[c11], band, +1),
+             (value[c12], original[c12], band, -1),
+             (value[c21], original[c21], band, -1),
+             (value[c22], original[c22], band, +1)],
             lo, hi)
         d = _pick_delta(dlo, dhi, unit, rng)
         if d == 0:

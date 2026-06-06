@@ -47,7 +47,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Monthly salary plan generator")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     parser.add_argument("--variation", type=int, default=15,
-                        help="+/-%% band for salary diversification (0 disables)")
+                        help="diversification band as %% of the legal pay range (0 disables)")
     args = parser.parse_args()
     variation = max(0, min(50, args.variation))
 

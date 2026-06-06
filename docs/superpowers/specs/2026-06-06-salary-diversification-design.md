@@ -39,7 +39,12 @@ preserved relative to the solved state:
 6. **Bounds & structure:** SE active cells stay in `[60, se_max]`; CE active
    cells stay in `[CE_SALARY_UNIT, ce_max]`. No active cell is zeroed and no new
    cell is created, so the active-slot set (and one-company-per-day) is untouched.
-7. **Band:** each cell stays within ±`pct` of its *original solved value*.
+7. **Band:** each cell stays within ±`band` of its *original solved value*, where
+   `band` is **one absolute value per worker-type derived from the input scale** —
+   `pct` of that type's legal range (not a per-cell percentage):
+   `band_SE = floor_to_unit(pct·(se_max − MIN_SALARY))`,
+   `band_CE = floor_to_unit(pct·(ce_max − 0))`. This gives floor/cap cells real
+   room (a cell at the 60 floor can move up to `band`, not just `pct·60`).
 8. **Determinism:** identical inputs + same `seed` → identical output.
 
 ## Approach: Cycle-based redistribution
@@ -61,9 +66,9 @@ w2@k1 -= δ    w2@k2 += δ
 ### Feasible δ
 
 Let the four current cell values be `v11=w1@k1, v12=w1@k2, v21=w2@k1,
-v22=w2@k2`, originals `o11..o22`, per-cell band budget `B_ij = unit *
-floor(o_ij * pct / unit)`, and active range `[lo, hi]` (`lo=60` SE,
-`lo=CE_SALARY_UNIT` CE; `hi=se_max`/`ce_max`). After moving by δ:
+v22=w2@k2`, originals `o11..o22`, the type's absolute band `B` (see invariant 7),
+and active range `[lo, hi]` (`lo=60` SE, `lo=CE_SALARY_UNIT` CE;
+`hi=se_max`/`ce_max`). After moving by δ:
 
 ```
 w1@k1 = v11+δ   w1@k2 = v12-δ   w2@k1 = v21-δ   w2@k2 = v22+δ
@@ -73,6 +78,11 @@ Intersect, over all four cells, the range constraints `lo ≤ value ≤ hi` and 
 band constraints `|value - o| ≤ B` to get `[δ_lo, δ_hi]`. Pick a random nonzero
 δ in that range that is a multiple of `unit`. If the range admits no nonzero
 multiple, skip this cycle.
+
+Note: on a tiny isolated cluster (e.g. one 2×2 cycle) repeated random δ moves can
+random-walk back toward the original values; real schedules have many coupled
+cycles so the pass reliably reduces duplicates. Tests use ≥3-day fixtures for this
+reason.
 
 ### Driver loop
 
